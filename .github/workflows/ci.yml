@@ -60,6 +60,8 @@ jobs:
         run: |
           ./scripts/changelog.sh check
           ./tests/changelog_test.sh
+      - name: Review rollout
+        run: ./tests/review_test.sh
 
   windows:
     runs-on: windows-latest

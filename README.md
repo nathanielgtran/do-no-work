@@ -140,6 +140,16 @@ BOOTSTRAP_CHECKS="test (ubuntu-latest),gitleaks" repo-bootstrap owner/repo --pub
 
 `--public` also warns if a workflow uses a self-hosted runner. Without `BOOTSTRAP_CHECKS` the required-checks rule is skipped. `BOOTSTRAP_ACTIONS` overrides the allowed third-party actions.
 
+### Roll out the review
+
+`repo-bootstrap owner/repo --review` sets up only the CI Claude review: the `REVIEWED` label, the Actions allowlist entries for the pinned `claude-code-action` and its nested `setup-bun` (merged into the existing list; skipped when all actions are allowed), a caller workflow opened as a PR if `.github/workflows/review.yml` is missing, and the `CLAUDE_CODE_OAUTH_TOKEN` secret. `review-rollout` runs it over several repos and prints a summary table.
+
+```bash
+CLAUDE_CODE_OAUTH_TOKEN=... review-rollout owner/repo1 owner/repo2
+```
+
+The token is read from the environment and piped to `gh secret set` on stdin; without it you get a `fix:` line with the command (a long-lived token comes from `claude setup-token`). Private repos run the caller on `BOOTSTRAP_REVIEW_RUNS_ON` (default `ubuntu-latest`); public repos never get a self-hosted runner.
+
 ## What's in it
 
 | Path | What |
@@ -149,7 +159,7 @@ BOOTSTRAP_CHECKS="test (ubuntu-latest),gitleaks" repo-bootstrap owner/repo --pub
 | `claude/commands/` | `/log`, `/prune`, `/test`, `/review-pr`, `/deploy`, `/hc`, `/rollback` (the last three expect `$HOMESERVER=user@host`) |
 | `claude/skills/` | `autobuild` (hands-off feature loop), `tighten` (post-PR simplify + fix), `backlog` (cross-repo TODO + issue rollup), `call` (call recording to notes), `wanderlog` (Wanderlog trip API) |
 | `claude/CLAUDE.md.example` | Global instructions template, copied to `~/CLAUDE.md` if you have none |
-| `bin/` | `pstack-budget-statusline` (5h/7d plan usage in the statusline, picks a model budget tier), `safe-worktree-remove` (refuses dirty, unmerged or in-use worktrees), `repo-bootstrap` (fleet GitHub defaults: Actions lockdown, squash-only, protect-main ruleset), `ci-wait` (block until a PR's checks finish, exit 1 on any failure), `transcribe` + `callrec` (local call recording + transcription), `pasteimg`, `chrome-devtools-mcp-gated`, `engraph-*` (engraph knowledge-graph MCP helpers) |
+| `bin/` | `pstack-budget-statusline` (5h/7d plan usage in the statusline, picks a model budget tier), `safe-worktree-remove` (refuses dirty, unmerged or in-use worktrees), `repo-bootstrap` (fleet GitHub defaults: Actions lockdown, squash-only, protect-main ruleset), `review-rollout` (enable the CI Claude review on repos: allowlist, caller PR, label, secret), `ci-wait` (block until a PR's checks finish, exit 1 on any failure), `transcribe` + `callrec` (local call recording + transcription), `pasteimg`, `chrome-devtools-mcp-gated`, `engraph-*` (engraph knowledge-graph MCP helpers) |
 | `home/` | `gitconfig` (identity in `~/.gitconfig.local`), `gitignore_global`, oh-my-posh theme, `bashrc.d/dotfiles.sh` (brew, PATH, prompt, `pass`-backed secrets) |
 | `skills-upstream.txt` | Third-party skills installed from their own repos, not copied here |
 
@@ -194,6 +204,7 @@ Output names the file, line and source but never prints a private pattern. A lin
 ./tests/install_test.sh   # installs into a throwaway HOME, link and copy mode, twice
 ./tests/hooks_test.sh     # feeds commands to the permission hooks and checks each decision
 ./tests/bootstrap_test.sh # repo-bootstrap against a fake gh
+./tests/review_test.sh    # repo-bootstrap --review and review-rollout against a fake gh
 ./tests/ci_wait_test.sh   # ci-wait against a fake gh
 ./tests/claude_review_verdict_test.sh  # verdict to label logic, with a stubbed gh
 ./tests/research_hooks_test.sh  # stop-gate and protect-lint-config in temp repos

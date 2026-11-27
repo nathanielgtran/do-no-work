@@ -1,19 +1,29 @@
 #!/bin/bash
 # Apply fleet defaults to an existing GitHub repo. Idempotent; one line per setting.
 #
-# Usage: repo-bootstrap <owner/repo> [--public] [--dry-run]
+# Usage: repo-bootstrap <owner/repo> [--public] [--dry-run] [--review]
 #   --public   warn if any workflow uses a self-hosted runner (fork PRs could reach it)
+#   --review   only set up the CI Claude review: REVIEWED label, Actions allowlist pins,
+#              caller workflow (via PR), CLAUDE_CODE_OAUTH_TOKEN secret
 #   --dry-run  print the mutating calls without making them (reads still run)
 #
 # Env:
 #   BOOTSTRAP_ACTIONS  comma list of allowed action patterns
 #                      (default astral-sh/setup-uv@*,gitleaks/gitleaks-action@*)
 #   BOOTSTRAP_CHECKS   comma list of required status checks; unset skips that rule
+#   CLAUDE_CODE_OAUTH_TOKEN  --review: set as the repo secret when absent (sent via stdin)
+#   BOOTSTRAP_REVIEW_RUNS_ON  --review, private repos: runner label or JSON list (default ubuntu-latest)
+#   BOOTSTRAP_REVIEW_SRC      --review: repo holding the reusable workflow (default nathanielgtran/do-no-work)
 set -euo pipefail
 
 DRY_RUN=0
 PUBLIC=0
+REVIEW=0
 REPO=""
+REVIEW_SRC="${BOOTSTRAP_REVIEW_SRC:-nathanielgtran/do-no-work}"
+REVIEW_BRANCH="NO-TICKET-claude-review"
+CALLER_PATH=".github/workflows/review.yml"
+ST_LABEL="-" ST_ALLOW="-" ST_CALLER="-" ST_SECRET="-"
 RULESET_NAME="protect-main"
 ACTIONS="${BOOTSTRAP_ACTIONS:-astral-sh/setup-uv@*,gitleaks/gitleaks-action@*}"
 
@@ -36,11 +46,12 @@ parse_args() {
     case "$a" in
       --public) PUBLIC=1 ;;
       --dry-run) DRY_RUN=1 ;;
+      --review) REVIEW=1 ;;
       -*) die "unknown flag: $a" ;;
       *) [ -z "$REPO" ] || die "unexpected argument: $a"; REPO="$a" ;;
     esac
   done
-  [[ "$REPO" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || die "usage: repo-bootstrap <owner/repo> [--public] [--dry-run]"
+  [[ "$REPO" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || die "usage: repo-bootstrap <owner/repo> [--public] [--dry-run] [--review]"
 }
 
 setup_actions() {
@@ -75,9 +86,12 @@ setup_label() {
   labels=$(gh api "repos/$REPO/labels?per_page=100") || die "failed to list labels"
   if jq -e '.[] | select(.name == "REVIEWED")' <<<"$labels" >/dev/null; then
     echo "ok   label REVIEWED already exists"
+    ST_LABEL=ok
     return
   fi
   apply "label REVIEWED created" POST "repos/$REPO/labels" -f name=REVIEWED -f color=0e8a16
+  ST_LABEL=created
+  if [ "$DRY_RUN" = 1 ]; then ST_LABEL=planned; fi
 }
 
 ruleset_body() {
@@ -130,10 +144,183 @@ warn_self_hosted() {
   [ "$found" = 1 ] || echo "ok   public: no self-hosted runners in workflows"
 }
 
+raw_file() {
+  gh api -H 'Accept: application/vnd.github.raw' "$1"
+}
+
+action_pins() {
+  local wf action_ref action_yml bun
+  wf=$(raw_file "repos/$REVIEW_SRC/contents/.github/workflows/claude-review.yml") \
+    || die "failed to read claude-review.yml from $REVIEW_SRC"
+  action_ref=$(grep -oE 'anthropics/claude-code-action@[A-Za-z0-9._-]+' <<<"$wf" | head -1 || true)
+  [ -n "$action_ref" ] || die "no anthropics/claude-code-action pin in claude-review.yml"
+  action_yml=$(raw_file "repos/anthropics/claude-code-action/contents/action.yml?ref=${action_ref#*@}") \
+    || die "failed to read action.yml at ${action_ref#*@}"
+  bun=$(grep -oE 'oven-sh/setup-bun@[A-Za-z0-9._-]+' <<<"$action_yml" | head -1 || true)
+  [ -n "$bun" ] || die "no oven-sh/setup-bun pin in action.yml at ${action_ref#*@}"
+  printf '%s\n%s\n' "$action_ref" "$bun"
+}
+
+setup_review_allowlist() {
+  local mode cur pins merged r="repos/$REPO/actions/permissions"
+  mode=$(gh api "$r" --jq .allowed_actions) || die "failed to read actions permissions"
+  if [ "$mode" != selected ]; then
+    echo "ok   allowlist: allowed_actions=$mode, nothing to add"
+    ST_ALLOW="skip($mode)"
+    return
+  fi
+  pins=$(action_pins)
+  cur=$(gh api "$r/selected-actions") || die "failed to read selected-actions"
+  merged=$(jq --arg pins "$pins" '
+    .patterns_allowed = ((.patterns_allowed // []) + ($pins | split("\n") | map(select(. != ""))) | unique)
+    | {github_owned_allowed: (.github_owned_allowed // true),
+       verified_allowed: (.verified_allowed // false), patterns_allowed}' <<<"$cur")
+  if jq -e --argjson m "$merged" '(.patterns_allowed // []) | sort == ($m.patterns_allowed | sort)' <<<"$cur" >/dev/null; then
+    echo "ok   allowlist already has $(tr '\n' ' ' <<<"$pins")"
+    ST_ALLOW=ok
+    return
+  fi
+  apply "actions: allowlist + $(tr '\n' ' ' <<<"$pins")" PUT "$r/selected-actions" --input - <<<"$merged"
+  ST_ALLOW=updated
+  if [ "$DRY_RUN" = 1 ]; then ST_ALLOW=planned; fi
+}
+
+runs_on_json() {
+  local v="${BOOTSTRAP_REVIEW_RUNS_ON:-ubuntu-latest}"
+  case "$v" in *"'"*) die "BOOTSTRAP_REVIEW_RUNS_ON must not contain a single quote" ;; esac
+  case "$v" in
+    \[*|\"*) printf '%s' "$v" ;;
+    *) printf '"%s"' "$v" ;;
+  esac
+}
+
+render_caller() {
+  local tpl="$1" with=""
+  if [ "$PUBLIC" != 1 ]; then
+    with="    with:\n      runs-on: '$(runs_on_json)'"
+  fi
+  grep -vE '^[[:space:]]*#' <<<"$tpl" | awk -v with="$with" '
+    /^    secrets:/ && with != "" { print with }
+    { print }'
+}
+
+caller_body() {
+  cat <<BODY
+## What
+Adds .github/workflows/review.yml, a caller for the reusable Claude review workflow in $REVIEW_SRC.
+
+## Why
+The review applies the REVIEWED label so the merge gate can allow merges.
+
+## Proof
+Generated by repo-bootstrap --review from examples/claude-review-caller.yml. The caller grants job-level contents: read and pull-requests: write.
+
+## Risk + rollback
+Adds one workflow that runs on pull_request and needs the CLAUDE_CODE_OAUTH_TOKEN secret. Revert this PR to remove it.
+
+## Checklist
+- [ ] CLAUDE_CODE_OAUTH_TOKEN secret is set
+- [ ] REVIEWED label exists
+- [ ] Actions allowlist includes the claude-code-action and setup-bun pins
+BODY
+}
+
+create_caller_pr() {
+  local base sha tpl rendered pr
+  base=$(gh api "repos/$REPO" --jq .default_branch) || die "failed to read default branch"
+  if pr=$(gh pr list -R "$REPO" --head "$REVIEW_BRANCH" --json url --jq '.[0].url // empty') && [ -n "$pr" ]; then
+    echo "ok   caller PR already open: $pr"
+    ST_CALLER="pr-open"
+    return
+  fi
+  tpl=$(raw_file "repos/$REVIEW_SRC/contents/examples/claude-review-caller.yml") \
+    || die "failed to read caller example from $REVIEW_SRC"
+  rendered=$(render_caller "$tpl")
+  sha=$(gh api "repos/$REPO/git/ref/heads/$base" --jq .object.sha) || die "failed to read $base sha"
+  apply "branch $REVIEW_BRANCH from $base" POST "repos/$REPO/git/refs" \
+    -f "ref=refs/heads/$REVIEW_BRANCH" -f "sha=$sha"
+  apply "create $CALLER_PATH on $REVIEW_BRANCH" PUT "repos/$REPO/contents/$CALLER_PATH" \
+    -f "message=[NO-TICKET] feat: add claude review caller" -f "branch=$REVIEW_BRANCH" \
+    -f "content=$(printf '%s\n' "$rendered" | base64 | tr -d '\n')"
+  if [ "$DRY_RUN" = 1 ]; then
+    printf 'dry  gh pr create -R %s --base %s --head %s\n' "$REPO" "$base" "$REVIEW_BRANCH"
+    ST_CALLER=planned
+    return
+  fi
+  pr=$(caller_body | gh pr create -R "$REPO" --base "$base" --head "$REVIEW_BRANCH" \
+    --title "[NO-TICKET] feat: add claude review caller" --body-file -) || die "failed to open PR"
+  echo "ok   caller PR opened: $pr"
+  ST_CALLER="pr-opened"
+}
+
+check_caller() {
+  local content="$1" bad=0
+  if ! grep -q 'pull-requests: write' <<<"$content"; then
+    echo "WARNING: $CALLER_PATH lacks 'pull-requests: write'; the review hits startup_failure" >&2
+    bad=1
+  fi
+  if ! grep -qE "uses:[[:space:]]*(\\.|$REVIEW_SRC)/\\.github/workflows/claude-review\\.yml" <<<"$content"; then
+    echo "WARNING: $CALLER_PATH does not call the reusable claude-review.yml" >&2
+    bad=1
+  fi
+  if [ "$bad" = 1 ]; then ST_CALLER=warn; return; fi
+  echo "ok   caller $CALLER_PATH present"
+  ST_CALLER=ok
+}
+
+setup_review_caller() {
+  local out
+  if out=$(raw_file "repos/$REPO/contents/$CALLER_PATH" 2>&1); then
+    check_caller "$out"
+    return
+  fi
+  grep -qi 'not found' <<<"$out" || die "failed to read $CALLER_PATH: $out"
+  create_caller_pr
+}
+
+setup_review_secret() {
+  local names name=CLAUDE_CODE_OAUTH_TOKEN
+  names=$(gh secret list -R "$REPO" --json name --jq '.[].name') || die "failed to list secrets"
+  if grep -qx "$name" <<<"$names"; then
+    echo "ok   secret $name present"
+    ST_SECRET=ok
+    return
+  fi
+  if [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
+    echo "fix: gh secret set $name -R $REPO   # long-lived token from: claude setup-token"
+    ST_SECRET=missing
+    return
+  fi
+  if [ "$DRY_RUN" = 1 ]; then
+    echo "dry  gh secret set $name -R $REPO (value from env via stdin)"
+    ST_SECRET=planned
+    return
+  fi
+  printf '%s' "$CLAUDE_CODE_OAUTH_TOKEN" | gh secret set "$name" -R "$REPO" >/dev/null \
+    || die "failed to set secret $name"
+  echo "ok   secret $name set from env"
+  ST_SECRET="set"
+}
+
+run_review() {
+  if [ "$PUBLIC" = 1 ]; then
+    case "${BOOTSTRAP_REVIEW_RUNS_ON:-}" in
+      *self-hosted*) die "--public refuses a self-hosted runs-on for the review caller" ;;
+    esac
+  fi
+  setup_label
+  setup_review_allowlist
+  setup_review_caller
+  setup_review_secret
+  if [ "$PUBLIC" = 1 ]; then warn_self_hosted; fi
+  echo "summary label=$ST_LABEL allowlist=$ST_ALLOW caller=$ST_CALLER secret=$ST_SECRET"
+}
+
 main() {
   parse_args "$@"
   command -v gh >/dev/null || die "gh not found"
   command -v jq >/dev/null || die "jq not found"
+  if [ "$REVIEW" = 1 ]; then run_review; return; fi
   setup_actions
   setup_repo
   setup_label
