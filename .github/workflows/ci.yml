@@ -29,6 +29,10 @@ jobs:
         run: for f in install.sh tests/*.sh bin/* claude/hooks/*.sh; do head -1 "$f" | grep -q bash && bash -n "$f"; done
       - name: Hook decisions
         run: ./tests/hooks_test.sh
+      - name: repo-bootstrap
+        run: ./tests/bootstrap_test.sh
+      - name: ci-wait
+        run: ./tests/ci_wait_test.sh
       - name: Installer
         run: ./tests/install_test.sh
       - name: wanderlog
