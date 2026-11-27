@@ -42,6 +42,7 @@ Implement in a dedicated worktree, never my primary checkout (I edit it live): `
 Broad: build, test, lint, push branches, open PRs freely. Approving a plan (ExitPlanMode or PLAN.md) pre-satisfies plan-first/per-file confirms within its scope; it does not loosen any hard rule or the merge condition.
 - **OpenSpec repos** (`openspec/config.yaml`): work end-to-end without asking (worktree, implement, test, push, PR) provided: (1) change first in `openspec/changes/<id>/` (proposal, tasks, spec deltas, design if non-trivial); (2) `openspec validate <id> --strict` clean BEFORE code, code stays in scope (scope grows: update change, re-validate); (3) tick tasks, tests + CHANGELOG/TODO/PLAN, re-validate before PR; (4) archive only via the repo's release flow or when told; never hand-edit `openspec/specs/` outside a change.
 - **<repo>** (opt-in per repo): releases and prod deploys autonomous (tag + `gh release create`) once merged work is green on main. Other repos: ask before GitHub releases or prod deploys.
+- After do-no-work merges to main, run `dnw-apply` (installs only merged main; guard-hook changes DM the owner and are audited).
 
 ## Workflows
 - Ticket ID mentioned: fetch via your ticket-tracker MCP, search daily-log + notes, check branches, summarise, wait.

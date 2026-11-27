@@ -1,0 +1,213 @@
+#!/bin/bash
+# Install merged do-no-work main onto this machine. Safe to run unattended.
+#
+# Usage: dnw-apply [--repo DIR] [--dry-run]
+#   --repo DIR  checkout to apply (default: the checkout this script resolves to via symlinks)
+#   --dry-run   run the checks and print the plan; fast-forwards nothing and writes nothing
+#
+# Refuses (exit 2) unless DIR is a clean git checkout on the default branch that fast-forwards to
+# origin/<default>. Fast-forwards, seeds the overlay once from the newest ~/.dotfiles-backup/*
+# if no overlay exists, runs install.sh (copy mode if the existing install is copy mode), runs
+# dnw-doctor, then records HEAD in ${XDG_STATE_HOME:-~/.local/state}/do-no-work/applied.
+# If guard hooks or deny rules changed since the recorded commit, appends to audit.log in that
+# directory and DMs the owner via claude-notify.sh --message. The first run (no recorded commit)
+# never alerts. Exit: doctor's code (0 ok, 1 fails), 2 on refusal.
+set -euo pipefail
+
+STATE="${XDG_STATE_HOME:-$HOME/.local/state}/do-no-work"
+GUARD_FILES="claude/hooks/autonomy-gate.sh
+claude/hooks/autonomy-toggle.sh
+claude/hooks/gate-self-merge.sh
+claude/hooks/openspec-autonomy.sh
+claude/settings.example.json"
+DRY=0
+REPO=""
+DEFAULT=""
+PREV=""
+OLD=""
+NEW=""
+CHANGED=""
+GUARD=""
+SEEDED=0
+BACKUP=""
+FAILS=0
+WARNS=0
+DOCTOR_RC=0
+
+refuse() { echo "dnw-apply: $*" >&2; exit 2; }
+
+self_repo() {
+  local p="${BASH_SOURCE[0]}" t
+  while [ -L "$p" ]; do
+    t="$(readlink "$p")"
+    case "$t" in /*) p="$t" ;; *) p="$(dirname "$p")/$t" ;; esac
+  done
+  (cd "$(dirname "$p")/.." && pwd)
+}
+
+parse_args() {
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --dry-run) DRY=1 ;;
+      --repo)
+        [ $# -ge 2 ] || refuse "--repo needs a directory"
+        REPO="$2"
+        shift ;;
+      *) refuse "unknown option: $1" ;;
+    esac
+    shift
+  done
+  [ -n "$REPO" ] || REPO="$(self_repo)"
+  [ -d "$REPO" ] || refuse "not a directory: $REPO"
+  REPO="$(cd "$REPO" && pwd)"
+}
+
+g() { git -C "$REPO" "$@"; }
+
+default_branch() {
+  local ref
+  if ref="$(g symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null)"; then
+    echo "${ref#origin/}"
+    return 0
+  fi
+  for ref in main master; do
+    if g rev-parse --verify -q "refs/remotes/origin/$ref" >/dev/null; then echo "$ref"; return 0; fi
+  done
+  return 1
+}
+
+check_clean() {
+  local dirty
+  dirty="$(g status --porcelain | grep -v '^?? overlay/' || true)"
+  [ -z "$dirty" ] || refuse "working tree not clean:"$'\n'"$dirty"
+}
+
+preconditions() {
+  local cur
+  g rev-parse --is-inside-work-tree >/dev/null 2>&1 || refuse "not a git repo: $REPO"
+  check_clean
+  g fetch --quiet origin || refuse "git fetch origin failed"
+  DEFAULT="$(default_branch)" || refuse "cannot determine the default branch of origin"
+  cur="$(g symbolic-ref --short -q HEAD || true)"
+  [ "$cur" = "$DEFAULT" ] || refuse "on '${cur:-detached HEAD}', not the default branch '$DEFAULT'"
+  OLD="$(g rev-parse HEAD)"
+  g merge-base --is-ancestor HEAD "origin/$DEFAULT" \
+    || refuse "local $DEFAULT has commits that are not on origin/$DEFAULT; will not merge or rebase"
+  if [ "$DRY" = 1 ]; then
+    NEW="$(g rev-parse "origin/$DEFAULT")"
+    return 0
+  fi
+  g merge --ff-only --quiet "origin/$DEFAULT" || refuse "cannot fast-forward to origin/$DEFAULT"
+  NEW="$(g rev-parse HEAD)"
+  [ "$NEW" = "$(g rev-parse "origin/$DEFAULT")" ] || refuse "HEAD does not equal origin/$DEFAULT"
+}
+
+load_previous() {
+  PREV="$(cat "$STATE/applied" 2>/dev/null || true)"
+  [ -n "$PREV" ] || return 0
+  g cat-file -e "$PREV^{commit}" 2>/dev/null || PREV=""
+}
+
+compute_changed() {
+  if [ -n "$PREV" ]; then
+    CHANGED="$(g diff --name-only "$PREV" "$NEW")"
+  else
+    CHANGED="$(g ls-files)"
+  fi
+  [ -n "$PREV" ] || return 0
+  GUARD="$(printf '%s\n' "$CHANGED" | grep -Fx -f <(printf '%s\n' "$GUARD_FILES") | paste -sd, - | sed 's/,/, /g' || true)"
+}
+
+short() { g rev-parse --short "$1"; }
+
+overlay_dir() { echo "${DOTFILES_OVERLAY:-$HOME/.config/do-no-work/overlay}"; }
+
+find_backup() {
+  [ ! -d "$(overlay_dir)" ] || return 0
+  BACKUP="$(ls -1d "$HOME"/.dotfiles-backup/*/ 2>/dev/null | sort | tail -1 || true)"
+}
+
+seed_overlay() {
+  [ -n "$BACKUP" ] || return 0
+  "$REPO/install.sh" --seed-overlay-from "$BACKUP" </dev/null
+  SEEDED=1
+}
+
+copy_mode() {
+  local hook="$HOME/.claude/hooks/autonomy-gate.sh"
+  [ -e "$hook" ] && [ ! -L "$hook" ]
+}
+
+run_install() {
+  local args=(--no-deps)
+  if copy_mode; then args+=(--copy); fi
+  DOTFILES_SKIP_UPSTREAM="${DOTFILES_SKIP_UPSTREAM:-1}" "$REPO/install.sh" "${args[@]}" </dev/null
+}
+
+alert_guard() {
+  local audit="$STATE/audit.log" notify="$HOME/.claude/hooks/claude-notify.sh" msg
+  mkdir -p "$STATE"
+  printf '%s %s..%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(short "$PREV")" "$(short "$NEW")" "$GUARD" >> "$audit"
+  msg="do-no-work applied $(short "$PREV")..$(short "$NEW"): guard hooks changed: $GUARD. Audit: $audit"
+  if [ ! -x "$notify" ]; then
+    echo "dnw-apply: warning: $notify missing; owner not notified" >&2
+    return 0
+  fi
+  "$notify" --message "$msg" </dev/null || echo "dnw-apply: warning: Discord notify failed; see $audit" >&2
+}
+
+run_doctor() {
+  local out
+  out="$("$REPO/bin/dnw-doctor" --repo "$REPO" </dev/null)" || DOCTOR_RC=$?
+  printf '%s\n' "$out"
+  FAILS="$(printf '%s\n' "$out" | grep -c '^fail' || true)"
+  WARNS="$(printf '%s\n' "$out" | grep -c '^warn' || true)"
+}
+
+yn() { if [ "$1" = 1 ]; then echo yes; else echo no; fi; }
+
+prev_label() { if [ -n "$PREV" ]; then short "$PREV"; else echo none; fi; }
+
+guard_flag() { if [ -n "$GUARD" ]; then echo 1; else echo 0; fi; }
+
+count_changed() { printf '%s\n' "$CHANGED" | grep -c . || true; }
+
+print_plan() {
+  local mode=link guard=0 seed=0
+  if copy_mode; then mode=copy; fi
+  guard="$(guard_flag)"
+  [ -z "$BACKUP" ] || seed=1
+  echo "dry run: nothing written"
+  if [ "$OLD" = "$NEW" ]; then echo "would fast-forward: no (already at $(short "$NEW"))"; else echo "would fast-forward: $(short "$OLD")..$(short "$NEW")"; fi
+  echo "would seed overlay: $(yn "$seed")${BACKUP:+ from $BACKUP}"
+  echo "would install: $mode mode, $(count_changed) files changed since $(prev_label)"
+  echo "guard change: $(yn "$guard")${GUARD:+ ($GUARD)}"
+}
+
+apply() {
+  find_backup
+  seed_overlay
+  run_install
+  [ -z "$GUARD" ] || alert_guard
+  run_doctor
+  echo
+  echo "applied $(prev_label)..$(short "$NEW"), $(count_changed) files changed, overlay seeded $(yn "$SEEDED"), guard change $(yn "$(guard_flag)"), doctor $FAILS fail / $WARNS warn"
+  mkdir -p "$STATE"
+  printf '%s\n' "$NEW" > "$STATE/applied"
+  return "$DOCTOR_RC"
+}
+
+main() {
+  parse_args "$@"
+  preconditions
+  load_previous
+  compute_changed
+  if [ "$DRY" = 1 ]; then
+    find_backup
+    print_plan
+    return 0
+  fi
+  apply
+}
+
+main "$@"
