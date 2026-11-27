@@ -1,0 +1,1 @@
+repo-bootstrap --review and review-rollout: one command per repo for the CI Claude review (REVIEWED label, Actions allowlist pins for claude-code-action and nested setup-bun merged into existing patterns, caller workflow via PR, CLAUDE_CODE_OAUTH_TOKEN from env via stdin), with tests against a fake gh

@@ -1,0 +1,46 @@
+#!/bin/bash
+# Roll out the CI Claude review to repos: review-rollout <owner/repo>...
+# Runs `repo-bootstrap <repo> --review` (plus --public for public repos), continues on error.
+# CLAUDE_CODE_OAUTH_TOKEN in the env is set as the repo secret where absent.
+set -uo pipefail
+
+[ "$#" -gt 0 ] || { echo "usage: review-rollout <owner/repo>..." >&2; exit 2; }
+command -v gh >/dev/null || { echo "review-rollout: gh not found" >&2; exit 1; }
+BS="$(dirname "${BASH_SOURCE[0]}")/repo-bootstrap"
+fails=0
+rows=()
+
+summary_field() {
+  local line="$1" key="$2" w
+  for w in $line; do
+    case "$w" in "$key="*) echo "${w#*=}"; return ;; esac
+  done
+  echo "-"
+}
+
+run_one() {
+  local repo="$1" vis out line args=("$1" --review)
+  if ! vis=$(gh repo view "$repo" --json visibility --jq .visibility 2>&1); then
+    echo "$vis" >&2
+    return 1
+  fi
+  if [ "$vis" = PUBLIC ]; then args+=(--public); fi
+  out=$("$BS" "${args[@]}") || { printf '%s\n' "$out" >&2; return 1; }
+  printf '%s\n' "$out"
+  line=$(grep '^summary ' <<<"$out" | tail -1 || true)
+  rows+=("$(printf '%s %s %s %s %s' "$repo" "$(summary_field "$line" label)" \
+    "$(summary_field "$line" allowlist)" "$(summary_field "$line" caller)" "$(summary_field "$line" secret)")")
+}
+
+for repo in "$@"; do
+  echo "== $repo"
+  if ! run_one "$repo"; then
+    echo "review-rollout: $repo failed" >&2
+    rows+=("$repo FAILED FAILED FAILED FAILED")
+    fails=$((fails + 1))
+  fi
+done
+
+echo
+printf '%s\n' "repo label allowlist caller secret" "${rows[@]}" | column -t
+[ "$fails" = 0 ]
