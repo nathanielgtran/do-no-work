@@ -32,7 +32,7 @@ check "seeded list printed" "has '^seeded: claude/commands/hc.md\$' && has '^see
 check "review hint printed" "has 'Review: these now override the repo; delete any that aren.t personal from $ovs'"
 check "provenance rows written" "[ \"\$(wc -l < '$ovs/.provenance')\" -eq 2 ]"
 want="$(git hash-object "$REPO/claude/commands/hc.md")"
-check "provenance holds repo blob sha" "grep -qP '^claude/commands/hc.md\\t$want\\t[0-9]{4}-[0-9]{2}-[0-9]{2}\$' '$ovs/.provenance'"
+check "provenance holds repo blob sha" "awk -F'\\t' -v w='$want' '\$1==\"claude/commands/hc.md\" && \$2==w && \$3 ~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]\$/' '$ovs/.provenance' | grep -q ."
 
 echo "-- seed from HOME uses the same deny list"
 mkdir -p "$home/.claude/hooks"
@@ -93,6 +93,13 @@ echo 'p' > "$ovr/claude/commands/brand-new.md"
 echo 'x' > "$ovr/claude/hooks/go-check.sh"
 out="$(HOME="$home4" DOTFILES_OVERLAY="$ovr" "$REPO/bin/dnw-doctor" </dev/null || true)"
 check "doctor warns once, suggests --record-overlay" "has 'warn +overlay .*no provenance' && has 'install.sh --record-overlay'"
+HOME="$home4" DOTFILES_OVERLAY="$ovr" GIT_NAME=T GIT_EMAIL=t@example.com DOTFILES_SKIP_UPSTREAM=1 \
+  "$REPO/install.sh" --no-deps >/dev/null 2>&1 </dev/null
+check "plain install records no provenance (legacy files stay flagged)" "[ ! -e '$ovr/.provenance' ]"
+out="$(HOME="$home4" DOTFILES_OVERLAY="$ovr" "$REPO/bin/dnw-doctor" </dev/null || true)"
+check "doctor still warns after a plain install" "has 'warn +overlay .*no provenance'"
+mv "$home4/.claude" "$home4/.claude.installed"
+mv "$home4/.local" "$home4/.local.installed" 2>/dev/null || true
 out="$(HOME="$home4" DOTFILES_OVERLAY="$ovr" "$REPO/install.sh" --record-overlay 2>&1 </dev/null)"
 check "records the shadowing file" "grep -q '^claude/commands/hc.md	' '$ovr/.provenance'"
 check "skips overlay-only and non-overlayable" "! grep -q 'brand-new\\|go-check' '$ovr/.provenance'"

@@ -99,10 +99,7 @@ place_manifest() {
   while IFS=$'\t' read -r src dst origin; do
     detach_linked_parent "$dst"
     place "$src" "$dst"
-    if [ "$origin" = overlay ]; then
-      n=$((n + 1))
-      prov_record "$OVERLAY" "$REPO" "${src#"$OVERLAY"/}"
-    fi
+    [ "$origin" = overlay ] && n=$((n + 1))
   done < <("$REPO/scripts/install-manifest.sh" "$REPO")
   [ "$n" -eq 0 ] || log "$n files from overlay $OVERLAY"
   return 0
