@@ -41,6 +41,10 @@ The rules behind it live in [`claude/CLAUDE.md.example`](claude/CLAUDE.md.exampl
 - **Comments default to none.** Rename, extract or type the code instead of explaining it.
 - **Proof, not claims.** PR bodies carry pasted test output or screenshots, never "tested locally".
 
+### Changelog
+
+PRs never edit `CHANGELOG.md`, so parallel PRs can't conflict there. Each PR adds one fragment, `changelog.d/<type-N>.md` (one line, no ID). `scripts/changelog.sh next <type>` prints the next free ID, `check` validates fragments (CI runs it), and `compile [--version vX.Y.Z]` folds them into `CHANGELOG.md` at release.
+
 ## Guardrails
 
 Every Bash call the agent makes passes through the hooks before it runs. The strictest decision wins: deny, then ask, then allow.
@@ -194,6 +198,7 @@ Output names the file, line and source but never prints a private pattern. A lin
 ./tests/claude_review_verdict_test.sh  # verdict to label logic, with a stubbed gh
 ./tests/research_hooks_test.sh  # stop-gate and protect-lint-config in temp repos
 ./tests/public_safety_test.sh   # leak check: builtin, derived and private-list patterns
+./tests/changelog_test.sh       # changelog fragments: next, check, compile
 ```
 
 CI runs these on GitHub-hosted Ubuntu and macOS, plus the skill test suites and gitleaks.

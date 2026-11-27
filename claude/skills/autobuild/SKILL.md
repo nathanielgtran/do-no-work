@@ -53,7 +53,8 @@ to approve.
   git worktree add -q ../<repo>-<slug> -b NO-TICKET-<slug> origin/main
   ```
   Use the repo's ticket prefix if it has one. `NO-TICKET` is for personal repos.
-- **Assign CHANGELOG IDs up front** (next free `feat-N`, `fix-N` from
+- **Assign CHANGELOG IDs up front** (`scripts/changelog.sh next feat` when the repo has
+  `changelog.d/`, else the next free `feat-N`, `fix-N` from
   `grep -oE "(feat|fix|chore|docs)-[0-9]+" CHANGELOG.md | sort -t- -k2 -n | tail`), and an
   OpenSpec change id per feature. Agents that pick IDs on their own collide.
 
@@ -72,7 +73,7 @@ self-contained and include:
      re-validate before the PR.
   2. TDD with behaviour tests; functions of 50 lines or fewer, complexity 10 or less, no swallowed errors, default no comments.
   3. Lint, format check and the full test suite green (the repo's commands from REPOS.md).
-  4. CHANGELOG line with the assigned ID, TODO follow-ups, README for new commands or config.
+  4. CHANGELOG line (or `changelog.d/<id>.md` fragment) with the assigned ID, TODO follow-ups, README for new commands or config.
   5. Commit `[NO-TICKET] feat: ...` with no co-author or footer. Push, and open the PR with the fleet template
      sections `## What` `## Why` `## Proof` (pasted output) `## Risk + rollback`
      `## Checklist`.

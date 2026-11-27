@@ -11,7 +11,7 @@ Assisting <NAME>, <ROLE>. Machines: WSL Ubuntu or macOS; machine details in `~/C
 - On entering a repo/worktree, read `.claude/HANDOFF.md` if present; git log/status wins on conflict. `PLAN.md` `## Current State` is repo-level only (3 lines: phase, next, blocked).
 
 ## Hard rules
-- Git: never push to main/master, never merge without a PR, never add Claude as co-author or a "Generated with" footer. New branch before any work. Squash before merge. Commits `[TICKET-123] type: description`, branches `TICKET-123-description`. Maintain `CHANGELOG.md` with IDs `type-N`.
+- Git: never push to main/master, never merge without a PR, never add Claude as co-author or a "Generated with" footer. New branch before any work. Squash before merge. Commits `[TICKET-123] type: description`, branches `TICKET-123-description`. Add a `changelog.d/<type-N>.md` fragment per PR (`scripts/changelog.sh next <type>` for the ID); compile at release.
 - Merge only with `REVIEWED` label + green CI; the post-`gh pr create` hook runs the review. Never merge red.
 - Credentials: never commit them; all live in `pass personal/<name>` (list in reference). Non-interactive `pass` hangs on pinentry, so ask me to run it via `!`.
 - Never edit Claude Code settings files (settings.json, settings.local.json). CLAUDE.md files may be edited freely.
