@@ -71,6 +71,7 @@ run_one() {
     (cd "$dir" && "$@" </dev/null) || rc=$?
   fi
   secs=$(($(date +%s) - start))
+  if [ "$secs" -lt 0 ]; then secs=0; fi
   if [ "$rc" -eq 0 ]; then
     record "$name" pass "$secs"
     return 0
