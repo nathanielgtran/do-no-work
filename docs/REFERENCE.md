@@ -226,13 +226,13 @@ Installed to `~/.local/bin/`. Most are bash; `engraph-mcp-proxy` is Python.
 **What:** Applies fleet defaults to an existing GitHub repo through `gh api`: read-only Actions token, selected actions only, fork-PR approval, squash-only merges with branch auto-delete, secret scanning and push protection, private vulnerability reporting, Dependabot alerts, the `REVIEWED` label, and a `protect-main` ruleset. Idempotent.  **When it runs:** Once per repo, by hand.
 **Example:** `BOOTSTRAP_CHECKS="test (ubuntu-latest),gitleaks" repo-bootstrap owner/repo --public`.
 **Configure / disable:** `--dry-run` prints the writes. `--public` warns on self-hosted runners. `BOOTSTRAP_ACTIONS` sets allowed actions (default `astral-sh/setup-uv@*,gitleaks/gitleaks-action@*`); without `BOOTSTRAP_CHECKS` the required-checks rule is skipped. Test: `tests/bootstrap_test.sh`.
-**Review mode:** `repo-bootstrap owner/repo --review` sets up only the CI Claude review. It ensures the `REVIEWED` label exists, merges the pinned `claude-code-action` and its nested `setup-bun` into a `selected` actions allowlist without dropping existing patterns, opens a PR adding `.github/workflows/review.yml` if missing, and sets `CLAUDE_CODE_OAUTH_TOKEN` from the env via stdin (never echoed). Private repos take the runner from `BOOTSTRAP_REVIEW_RUNS_ON` (JSON, e.g. `'["self-hosted","nuc"]'`); `--public` refuses self-hosted. Test: `tests/review_test.sh`.
+**Review mode:** `repo-bootstrap owner/repo --review` sets up only the CI Claude review. It ensures the `REVIEWED` label exists, merges the pinned `claude-code-action` and its nested `setup-bun` into a `selected` actions allowlist without dropping existing patterns, opens a PR adding `.github/workflows/review.yml` if missing, and sets `CLAUDE_CODE_OAUTH_TOKEN` from the env via stdin (never echoed). The caller is pinned to the full SHA of `BOOTSTRAP_REVIEW_SRC` HEAD (or `BOOTSTRAP_REVIEW_REF`; only a 40-hex result is accepted) with `tools-ref` set to the same SHA and a job-level fork guard. Private repos: `BOOTSTRAP_REVIEW_RUNS_ON` (label or JSON) wins; unset or `auto` queries the repo's runners and picks the single `nuc-*` label, else `nuc`, else `ubuntu-latest` with a printed note. Public repos (or `--public`, or detected via `gh repo view`) always get `ubuntu-latest`; `--public` refuses self-hosted. A `skip-changelog` label, if the repo has one, is applied to the caller PR. **Update mode:** if the caller already exists on the default branch or a `NO-TICKET-claude-review` PR is open, the new caller is rendered and compared; a difference opens `NO-TICKET-claude-review-harden` and a `[NO-TICKET] ci: harden Claude review caller (pin SHA, fork guard)` PR (or updates the open caller PR's branch and comments), identical prints `ok`. Only `review.yml` is touched. Test: `tests/review_test.sh`.
 **Source:** [`bin/repo-bootstrap`](../bin/repo-bootstrap)
 
 ### `review-rollout`
 **What:** Runs `repo-bootstrap <repo> --review` across many repos, adding `--public` for public ones, continuing past failures, then prints a repo / label / allowlist / caller / secret table.  **When it runs:** By hand when enabling the review on more repos.
 **Example:** `CLAUDE_CODE_OAUTH_TOKEN=... review-rollout owner/a owner/b`.
-**Configure / disable:** Same env as `repo-bootstrap --review`. To disable the review on a repo, delete its `.github/workflows/review.yml`.
+**Configure / disable:** Same env as `repo-bootstrap --review`; re-running it over repos with an existing caller opens or refreshes hardening PRs. To disable the review on a repo, delete its `.github/workflows/review.yml`.
 **Source:** [`bin/review-rollout`](../bin/review-rollout)
 
 ### `dnw-doctor`
@@ -361,21 +361,21 @@ Helpers for the engraph knowledge-graph MCP server over a vault of hardlinked ma
 **Source:** [`.github/workflows/ci.yml`](../.github/workflows/ci.yml)
 
 ### `claude-review`
-**What:** Reusable workflow. Removes `REVIEWED` if present, skips forks and drafts, checks out the PR head and a trusted copy of the verdict script from `main`, has Claude review the diff read-only (Read, Grep, Glob, `git diff`, `git log`; max 20 turns), and applies `REVIEWED` only on a `PASS` for that commit.  **When it runs:** Called on `pull_request` opened, synchronize, reopened, ready_for_review.
+**What:** Reusable workflow. Removes `REVIEWED` if present, skips forks and drafts, checks out the PR head and a trusted copy of the verdict script from `tools-ref`, has Claude review the diff read-only (Read, Grep, Glob, `git diff`, `git log`; max 20 turns), and applies `REVIEWED` only on a `PASS` for that commit.  **When it runs:** Called on `pull_request` opened, synchronize, reopened, ready_for_review.
 **Example:** A push after review removes the label and re-reviews. A `BLOCK`, missing verdict or moved head fails the job with no label.
 **Configure / disable:** Secret `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token`). Inputs: `runs-on` (JSON, default `"ubuntu-latest"`; keep it for public repos), `model`, `max-turns`, `tools-ref`. Allow `anthropics/claude-code-action@*` if actions are restricted.
 **Source:** [`.github/workflows/claude-review.yml`](../.github/workflows/claude-review.yml)
 
 ### `review`
-**What:** This repo's own caller of `claude-review` (`uses: ./.github/workflows/claude-review.yml`).  **When it runs:** Same PR events.
+**What:** This repo's own caller of `claude-review` (`uses: ./.github/workflows/claude-review.yml`, no pin needed; job-level fork guard).  **When it runs:** Same PR events.
 **Example:** Every PR here gets the review and label automatically.
 **Configure / disable:** Delete the file to stop self-review.
 **Source:** [`.github/workflows/review.yml`](../.github/workflows/review.yml)
 
 ### `claude-review-caller.yml` (example)
-**What:** The file to copy into another repo as `.github/workflows/review.yml`. Calls this repo's reusable workflow at `@main` with `contents: read` and `pull-requests: write`.  **When it runs:** Not run here; it is a template.
-**Example:** Create a `REVIEWED` label, set the secret, copy the file.
-**Configure / disable:** Private repos may pass `runs-on: '["self-hosted","nuc"]'`; public repos must not.
+**What:** The file to copy into another repo as `.github/workflows/review.yml`. Calls this repo's reusable workflow pinned at `@<40-hex SHA>` (placeholders `__SHA__`, `__SHORT__`, `__RUNS_ON__`, filled by `repo-bootstrap --review`) with `tools-ref` set to the same SHA, a job-level fork guard, `contents: read` and `pull-requests: write`.  **When it runs:** Not run here; it is a template.
+**Example:** Create a `REVIEWED` label, set the secret, run `repo-bootstrap owner/repo --review`.
+**Configure / disable:** Private repos pass `runs-on` as their repo-specific runner, e.g. `'["self-hosted","nuc-myrepo"]'`; public repos drop the line.
 **Source:** [`examples/claude-review-caller.yml`](../examples/claude-review-caller.yml)
 
 ---

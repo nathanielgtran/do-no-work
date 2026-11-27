@@ -110,13 +110,15 @@ BOOTSTRAP_CHECKS="test (ubuntu-latest),gitleaks" repo-bootstrap owner/repo --pub
 
 ### Roll out the review
 
-`repo-bootstrap owner/repo --review` sets up only the CI Claude review: the `REVIEWED` label, the Actions allowlist entries for the pinned `claude-code-action` and its nested `setup-bun` (merged into the existing list; skipped when all actions are allowed), a caller workflow opened as a PR if `.github/workflows/review.yml` is missing, and the `CLAUDE_CODE_OAUTH_TOKEN` secret. `review-rollout` runs it over several repos and prints a summary table.
+`repo-bootstrap owner/repo --review` sets up only the CI Claude review: the `REVIEWED` label, the Actions allowlist entries for the pinned `claude-code-action` and its nested `setup-bun` (merged into the existing list; skipped when all actions are allowed), a caller workflow opened as a PR if `.github/workflows/review.yml` is missing (or updated by PR when it differs from the current template), and the `CLAUDE_CODE_OAUTH_TOKEN` secret. `review-rollout` runs it over several repos and prints a summary table.
 
 ```bash
 CLAUDE_CODE_OAUTH_TOKEN=... review-rollout owner/repo1 owner/repo2
 ```
 
-The token is read from the environment and piped to `gh secret set` on stdin; without it you get a `fix:` line with the command (a long-lived token comes from `claude setup-token`). Private repos run the caller on `BOOTSTRAP_REVIEW_RUNS_ON` (default `ubuntu-latest`); public repos never get a self-hosted runner.
+The token is read from the environment and piped to `gh secret set` on stdin; without it you get a `fix:` line with the command (a long-lived token comes from `claude setup-token`). The caller is pinned to a full commit SHA of this repo (the current HEAD of its default branch, or `BOOTSTRAP_REVIEW_REF`), with `tools-ref` set to the same SHA, and its job has a fork guard (`if: github.event.pull_request.head.repo.full_name == github.repository`) so fork PRs never reach a self-hosted runner. Private repos run on `BOOTSTRAP_REVIEW_RUNS_ON`; unset or `auto` picks the repo's single `nuc-*` runner label, else `nuc`, else `ubuntu-latest` with a note. Public repos always get `ubuntu-latest`. When the repo has a `skip-changelog` label it is applied to the caller PR.
+
+Re-run to update: if the caller already exists on the default branch (or a `NO-TICKET-claude-review` PR is open), the new caller is rendered and compared. A difference opens `NO-TICKET-claude-review-harden` with a `[NO-TICKET] ci: harden Claude review caller (pin SHA, fork guard)` PR, or updates the open caller PR's branch and comments on it; identical prints `ok`. Bump a pin by re-running after merging a change here.
 
 ## What's in it
 
@@ -149,9 +151,9 @@ Not automated:
 
 ## Claude review
 
-`.github/workflows/claude-review.yml` is a reusable workflow. On each PR it removes `REVIEWED`, has Claude review the diff read-only (Read/Grep/Glob, `git diff`/`git log`), posts the findings as a comment, and adds `REVIEWED` only on a PASS for the same head commit. A BLOCK, a missing or unparseable verdict, or a head that moved mid-review fails the job with no label. Fork PRs and drafts are skipped (no secrets on forks). The label is read from the action's `structured_output`, via `scripts/claude-review-verdict.sh`, which is always loaded from `main` rather than the PR.
+`.github/workflows/claude-review.yml` is a reusable workflow. On each PR it removes `REVIEWED`, has Claude review the diff read-only (Read/Grep/Glob, `git diff`/`git log`), posts the findings as a comment, and adds `REVIEWED` only on a PASS for the same head commit. A BLOCK, a missing or unparseable verdict, or a head that moved mid-review fails the job with no label. Fork PRs and drafts are skipped (no secrets on forks). The label is read from the action's `structured_output`, via `scripts/claude-review-verdict.sh`, which is always loaded from `tools-ref` (a pinned SHA in callers) rather than the PR.
 
-Enable in a repo: create a `REVIEWED` label, run `gh secret set CLAUDE_CODE_OAUTH_TOKEN -R owner/repo` with a token from `claude setup-token`, and copy `examples/claude-review-caller.yml` to `.github/workflows/review.yml`. Public repos keep `ubuntu-latest`. If the repo restricts allowed actions, allow `anthropics/claude-code-action@*`.
+Enable in a repo: create a `REVIEWED` label, run `gh secret set CLAUDE_CODE_OAUTH_TOKEN -R owner/repo` with a token from `claude setup-token`, and render `examples/claude-review-caller.yml` into `.github/workflows/review.yml` (easiest with `repo-bootstrap owner/repo --review`, which fills in the SHA pin). Public repos keep `ubuntu-latest`. If the repo restricts allowed actions, allow `anthropics/claude-code-action@*`.
 
 ## Secrets
 

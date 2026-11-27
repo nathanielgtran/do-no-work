@@ -4,7 +4,8 @@
 # Usage: repo-bootstrap <owner/repo> [--public] [--dry-run] [--review]
 #   --public   warn if any workflow uses a self-hosted runner (fork PRs could reach it)
 #   --review   only set up the CI Claude review: REVIEWED label, Actions allowlist pins,
-#              caller workflow (via PR), CLAUDE_CODE_OAUTH_TOKEN secret
+#              caller workflow (via PR; an existing caller is hardened/updated via PR),
+#              skip-changelog on that PR when the label exists, CLAUDE_CODE_OAUTH_TOKEN secret
 #   --dry-run  print the mutating calls without making them (reads still run)
 #
 # Env:
@@ -12,7 +13,10 @@
 #                      (default astral-sh/setup-uv@*,gitleaks/gitleaks-action@*)
 #   BOOTSTRAP_CHECKS   comma list of required status checks; unset skips that rule
 #   CLAUDE_CODE_OAUTH_TOKEN  --review: set as the repo secret when absent (sent via stdin)
-#   BOOTSTRAP_REVIEW_RUNS_ON  --review, private repos: runner label or JSON list (default ubuntu-latest)
+#   BOOTSTRAP_REVIEW_RUNS_ON  --review, private repos: runner label or JSON list, or auto (default):
+#                      the repo's single nuc-* runner label, else nuc, else ubuntu-latest
+#   BOOTSTRAP_REVIEW_REF      --review: ref of BOOTSTRAP_REVIEW_SRC to pin the caller to (default: HEAD of
+#                      its default branch); resolved to a 40-hex commit SHA
 #   BOOTSTRAP_REVIEW_SRC      --review: repo holding the reusable workflow (default nathanielgtran/do-no-work)
 set -euo pipefail
 
@@ -22,6 +26,9 @@ REVIEW=0
 REPO=""
 REVIEW_SRC="${BOOTSTRAP_REVIEW_SRC:-nathanielgtran/do-no-work}"
 REVIEW_BRANCH="NO-TICKET-claude-review"
+HARDEN_BRANCH="NO-TICKET-claude-review-harden"
+HARDEN_TITLE="[NO-TICKET] ci: harden Claude review caller (pin SHA, fork guard)"
+LABELS="[]" REVIEW_SHA="" RUNS_ON_JSON=""
 CALLER_PATH=".github/workflows/review.yml"
 ST_LABEL="-" ST_ALLOW="-" ST_CALLER="-" ST_SECRET="-"
 RULESET_NAME="protect-main"
@@ -82,9 +89,8 @@ setup_repo() {
 }
 
 setup_label() {
-  local labels
-  labels=$(gh api "repos/$REPO/labels?per_page=100") || die "failed to list labels"
-  if jq -e '.[] | select(.name == "REVIEWED")' <<<"$labels" >/dev/null; then
+  LABELS=$(gh api "repos/$REPO/labels?per_page=100") || die "failed to list labels"
+  if jq -e '.[] | select(.name == "REVIEWED")' <<<"$LABELS" >/dev/null; then
     echo "ok   label REVIEWED already exists"
     ST_LABEL=ok
     return
@@ -150,7 +156,7 @@ raw_file() {
 
 action_pins() {
   local wf action_ref action_yml bun
-  wf=$(raw_file "repos/$REVIEW_SRC/contents/.github/workflows/claude-review.yml") \
+  wf=$(raw_file "repos/$REVIEW_SRC/contents/.github/workflows/claude-review.yml?ref=$REVIEW_SHA") \
     || die "failed to read claude-review.yml from $REVIEW_SRC"
   action_ref=$(grep -oE 'anthropics/claude-code-action@[A-Za-z0-9._-]+' <<<"$wf" | head -1 || true)
   [ -n "$action_ref" ] || die "no anthropics/claude-code-action pin in claude-review.yml"
@@ -186,7 +192,7 @@ setup_review_allowlist() {
 }
 
 runs_on_json() {
-  local v="${BOOTSTRAP_REVIEW_RUNS_ON:-ubuntu-latest}"
+  local v="$1"
   case "$v" in *"'"*) die "BOOTSTRAP_REVIEW_RUNS_ON must not contain a single quote" ;; esac
   case "$v" in
     \[*|\"*) printf '%s' "$v" ;;
@@ -194,26 +200,57 @@ runs_on_json() {
   esac
 }
 
-render_caller() {
-  local tpl="$1" with=""
-  if [ "$PUBLIC" != 1 ]; then
-    with="    with:\n      runs-on: '$(runs_on_json)'"
+# Sets RUNS_ON_JSON. Private repos: an explicit BOOTSTRAP_REVIEW_RUNS_ON wins; unset/auto picks
+# the repo-specific nuc-* label, else nuc, else ubuntu-latest (with a printed note).
+resolve_runs_on() {
+  local v="${BOOTSTRAP_REVIEW_RUNS_ON:-auto}" out labels specific
+  RUNS_ON_JSON='"ubuntu-latest"'
+  if [ "$PUBLIC" = 1 ]; then return; fi
+  if [ "$v" != auto ]; then RUNS_ON_JSON=$(runs_on_json "$v"); return; fi
+  if ! out=$(gh api "repos/$REPO/actions/runners?per_page=100" 2>&1); then
+    echo "note runner: cannot list runners for $REPO, using ubuntu-latest"
+    return
   fi
-  grep -vE '^[[:space:]]*#' <<<"$tpl" | awk -v with="$with" '
-    /^    secrets:/ && with != "" { print with }
-    { print }'
+  labels=$(jq -r '[.runners[]?.labels[]?.name] | unique | .[]' <<<"$out") || die "failed to parse runners"
+  specific=$(grep '^nuc-' <<<"$labels" || true)
+  if [ "$(grep -c '^nuc-' <<<"$labels" || true)" = 1 ]; then
+    RUNS_ON_JSON="[\"self-hosted\",\"$specific\"]"
+  elif grep -qx nuc <<<"$labels"; then
+    RUNS_ON_JSON='["self-hosted","nuc"]'
+  else
+    echo "note runner: no nuc self-hosted runner on $REPO, using ubuntu-latest"
+    return
+  fi
+  echo "ok   runner: $RUNS_ON_JSON"
+}
+
+resolve_review_sha() {
+  local ref="${BOOTSTRAP_REVIEW_REF:-HEAD}" sha
+  [[ "$ref" =~ ^[A-Za-z0-9._/-]+$ ]] || die "invalid BOOTSTRAP_REVIEW_REF: $ref"
+  sha=$(gh api "repos/$REVIEW_SRC/commits/$ref" --jq .sha) || die "failed to resolve $ref in $REVIEW_SRC"
+  [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || die "$REVIEW_SRC $ref did not resolve to a 40-hex commit SHA: $sha"
+  REVIEW_SHA="$sha"
+}
+
+# render_caller <template>: needs REVIEW_SHA and RUNS_ON_JSON. Comment lines are dropped,
+# the trailing "# do-no-work <short>" on the uses line stays.
+render_caller() {
+  grep -vE '^[[:space:]]*#' <<<"$1" | awk -v sha="$REVIEW_SHA" -v short="${REVIEW_SHA:0:7}" \
+    -v ro="$RUNS_ON_JSON" -v pub="$PUBLIC" '
+    /__RUNS_ON__/ { if (pub == 1) next; gsub(/__RUNS_ON__/, ro) }
+    { gsub(/__SHA__/, sha); gsub(/__SHORT__/, short); print }'
 }
 
 caller_body() {
   cat <<BODY
 ## What
-Adds .github/workflows/review.yml, a caller for the reusable Claude review workflow in $REVIEW_SRC.
+Adds .github/workflows/review.yml, a caller for the reusable Claude review workflow in $REVIEW_SRC, pinned to ${REVIEW_SHA:0:7} with a fork guard.
 
 ## Why
 The review applies the REVIEWED label so the merge gate can allow merges.
 
 ## Proof
-Generated by repo-bootstrap --review from examples/claude-review-caller.yml. The caller grants job-level contents: read and pull-requests: write.
+Generated by repo-bootstrap --review from examples/claude-review-caller.yml at $REVIEW_SHA. The file diff shows the job-level fork guard, the full-SHA pin, and tools-ref set to the same SHA.
 
 ## Risk + rollback
 Adds one workflow that runs on pull_request and needs the CLAUDE_CODE_OAUTH_TOKEN secret. Revert this PR to remove it.
@@ -225,57 +262,138 @@ Adds one workflow that runs on pull_request and needs the CLAUDE_CODE_OAUTH_TOKE
 BODY
 }
 
-create_caller_pr() {
-  local base sha tpl rendered pr
-  base=$(gh api "repos/$REPO" --jq .default_branch) || die "failed to read default branch"
-  if pr=$(gh pr list -R "$REPO" --head "$REVIEW_BRANCH" --json url --jq '.[0].url // empty') && [ -n "$pr" ]; then
-    echo "ok   caller PR already open: $pr"
-    ST_CALLER="pr-open"
+harden_body() {
+  cat <<BODY
+## What
+Updates .github/workflows/review.yml to the hardened caller from $REVIEW_SRC at ${REVIEW_SHA:0:7}: job-level fork guard, full-SHA pin of the reusable workflow, and tools-ref set to the same SHA (private repos also get the repo-specific runner label).
+
+## Why
+- Fork guard: without it a fork PR could schedule the job on a self-hosted runner, and on pull_request the workflow file comes from the PR.
+- SHA pin: @main let a change to the reusable workflow, or to the verdict script loaded from tools-ref, reach every repo holding CLAUDE_CODE_OAUTH_TOKEN.
+- Runner label: fleet convention is the repo-specific nuc-* label, not the shared nuc one.
+
+## Proof
+Generated by repo-bootstrap --review from examples/claude-review-caller.yml at $REVIEW_SHA. The file diff shows the \`if:\` guard, \`@<sha> # do-no-work ${REVIEW_SHA:0:7}\` and \`tools-ref\`.
+
+## Risk + rollback
+Only .github/workflows/review.yml changes. Fork PRs now skip the review entirely. Revert this PR to restore the previous caller.
+
+## Checklist
+- [ ] CLAUDE_CODE_OAUTH_TOKEN secret is set
+- [ ] REVIEWED label exists
+- [ ] CHANGELOG gate skipped via skip-changelog label (CI-only change)
+BODY
+}
+
+label_skip_changelog() {
+  jq -e '.[] | select(.name == "skip-changelog")' <<<"$LABELS" >/dev/null || return 0
+  if [ "$DRY_RUN" = 1 ]; then
+    printf 'dry  gh pr edit -R %s %s --add-label skip-changelog\n' "$REPO" "${1:-<new PR>}"
     return
   fi
-  tpl=$(raw_file "repos/$REVIEW_SRC/contents/examples/claude-review-caller.yml") \
-    || die "failed to read caller example from $REVIEW_SRC"
-  rendered=$(render_caller "$tpl")
-  sha=$(gh api "repos/$REPO/git/ref/heads/$base" --jq .object.sha) || die "failed to read $base sha"
-  apply "branch $REVIEW_BRANCH from $base" POST "repos/$REPO/git/refs" \
-    -f "ref=refs/heads/$REVIEW_BRANCH" -f "sha=$sha"
-  apply "create $CALLER_PATH on $REVIEW_BRANCH" PUT "repos/$REPO/contents/$CALLER_PATH" \
-    -f "message=[NO-TICKET] feat: add claude review caller" -f "branch=$REVIEW_BRANCH" \
-    -f "content=$(printf '%s\n' "$rendered" | base64 | tr -d '\n')"
+  gh pr edit -R "$REPO" "$1" --add-label skip-changelog >/dev/null || die "failed to label $1 skip-changelog"
+  echo "ok   skip-changelog applied to $1"
+}
+
+# open_pr <branch> <base> <title> <body-fn>
+open_pr() {
+  local pr
   if [ "$DRY_RUN" = 1 ]; then
-    printf 'dry  gh pr create -R %s --base %s --head %s\n' "$REPO" "$base" "$REVIEW_BRANCH"
+    printf 'dry  gh pr create -R %s --base %s --head %s\n' "$REPO" "$2" "$1"
+    label_skip_changelog ""
     ST_CALLER=planned
     return
   fi
-  pr=$(caller_body | gh pr create -R "$REPO" --base "$base" --head "$REVIEW_BRANCH" \
-    --title "[NO-TICKET] feat: add claude review caller" --body-file -) || die "failed to open PR"
+  pr=$("$4" | gh pr create -R "$REPO" --base "$2" --head "$1" --title "$3" --body-file -) \
+    || die "failed to open PR"
   echo "ok   caller PR opened: $pr"
+  label_skip_changelog "$pr"
   ST_CALLER="pr-opened"
 }
 
-check_caller() {
-  local content="$1" bad=0
-  if ! grep -q 'pull-requests: write' <<<"$content"; then
-    echo "WARNING: $CALLER_PATH lacks 'pull-requests: write'; the review hits startup_failure" >&2
-    bad=1
+# put_caller <branch> <content> <blob-sha or empty> <message>
+put_caller() {
+  local args=(-f "message=$4" -f "branch=$1" -f "content=$(printf '%s\n' "$2" | base64 | tr -d '\n')")
+  if [ -n "$3" ]; then args+=(-f "sha=$3"); fi
+  apply "write $CALLER_PATH on $1" PUT "repos/$REPO/contents/$CALLER_PATH" "${args[@]}"
+}
+
+# read_branch_caller <ref>: sets BRANCH_CALLER, BRANCH_BLOB (empty when the file is absent)
+read_branch_caller() {
+  local out
+  BRANCH_CALLER="" BRANCH_BLOB=""
+  if out=$(raw_file "repos/$REPO/contents/$CALLER_PATH?ref=$1" 2>&1); then
+    BRANCH_CALLER="$out"
+    BRANCH_BLOB=$(gh api "repos/$REPO/contents/$CALLER_PATH?ref=$1" --jq .sha) \
+      || die "failed to read $CALLER_PATH blob sha on $1"
+    return
   fi
-  if ! grep -qE "uses:[[:space:]]*(\\.|$REVIEW_SRC)/\\.github/workflows/claude-review\\.yml" <<<"$content"; then
-    echo "WARNING: $CALLER_PATH does not call the reusable claude-review.yml" >&2
-    bad=1
+  grep -qi 'not found' <<<"$out" || die "failed to read $CALLER_PATH on $1: $out"
+}
+
+open_pr_url() {
+  gh pr list -R "$REPO" --head "$1" --json url --jq '.[0].url // empty' || die "failed to list PRs for $1"
+}
+
+create_caller_pr() {
+  local base="$1" rendered="$2" sha
+  sha=$(gh api "repos/$REPO/git/ref/heads/$base" --jq .object.sha) || die "failed to read $base sha"
+  apply "branch $REVIEW_BRANCH from $base" POST "repos/$REPO/git/refs" \
+    -f "ref=refs/heads/$REVIEW_BRANCH" -f "sha=$sha"
+  put_caller "$REVIEW_BRANCH" "$rendered" "" "[NO-TICKET] feat: add claude review caller"
+  open_pr "$REVIEW_BRANCH" "$base" "[NO-TICKET] feat: add claude review caller" caller_body
+}
+
+open_harden_pr() {
+  local base="$1" rendered="$2" blob="$3" sha
+  sha=$(gh api "repos/$REPO/git/ref/heads/$base" --jq .object.sha) || die "failed to read $base sha"
+  apply "branch $HARDEN_BRANCH from $base" POST "repos/$REPO/git/refs" \
+    -f "ref=refs/heads/$HARDEN_BRANCH" -f "sha=$sha"
+  put_caller "$HARDEN_BRANCH" "$rendered" "$blob" "$HARDEN_TITLE"
+  open_pr "$HARDEN_BRANCH" "$base" "$HARDEN_TITLE" harden_body
+}
+
+# refresh_pr <branch> <pr-url> <rendered>: bring the caller on an open PR's branch up to date
+refresh_pr() {
+  local br="$1" url="$2" rendered="$3"
+  read_branch_caller "$br"
+  if [ -n "$BRANCH_BLOB" ] && [ "$BRANCH_CALLER" = "$rendered" ]; then
+    echo "ok   caller PR already current: $url"
+    ST_CALLER="pr-open"
+    return
   fi
-  if [ "$bad" = 1 ]; then ST_CALLER=warn; return; fi
-  echo "ok   caller $CALLER_PATH present"
-  ST_CALLER=ok
+  put_caller "$br" "$rendered" "$BRANCH_BLOB" "$HARDEN_TITLE"
+  if [ "$DRY_RUN" = 1 ]; then
+    printf 'dry  gh pr comment %s (caller refreshed to %s)\n' "$url" "${REVIEW_SHA:0:7}"
+    ST_CALLER=planned
+  else
+    printf 'repo-bootstrap refreshed %s: pin @%s, tools-ref, job-level fork guard.\n' "$CALLER_PATH" "$REVIEW_SHA" \
+      | gh pr comment "$url" --body-file - >/dev/null || die "failed to comment on $url"
+    echo "ok   caller PR $url updated"
+    ST_CALLER="pr-updated"
+  fi
+  label_skip_changelog "$url"
 }
 
 setup_review_caller() {
-  local out
-  if out=$(raw_file "repos/$REPO/contents/$CALLER_PATH" 2>&1); then
-    check_caller "$out"
+  local base pr_open pr_harden tpl rendered
+  base=$(gh api "repos/$REPO" --jq .default_branch) || die "failed to read default branch"
+  pr_open=$(open_pr_url "$REVIEW_BRANCH")
+  pr_harden=$(open_pr_url "$HARDEN_BRANCH")
+  read_branch_caller "$base"
+  tpl=$(raw_file "repos/$REVIEW_SRC/contents/examples/claude-review-caller.yml?ref=$REVIEW_SHA") \
+    || die "failed to read caller example from $REVIEW_SRC"
+  resolve_runs_on
+  rendered=$(render_caller "$tpl")
+  if [ -n "$pr_open" ]; then refresh_pr "$REVIEW_BRANCH" "$pr_open" "$rendered"; return; fi
+  if [ -n "$pr_harden" ]; then refresh_pr "$HARDEN_BRANCH" "$pr_harden" "$rendered"; return; fi
+  if [ -z "$BRANCH_BLOB" ]; then create_caller_pr "$base" "$rendered"; return; fi
+  if [ "$BRANCH_CALLER" = "$rendered" ]; then
+    echo "ok   caller $CALLER_PATH present and current"
+    ST_CALLER=ok
     return
   fi
-  grep -qi 'not found' <<<"$out" || die "failed to read $CALLER_PATH: $out"
-  create_caller_pr
+  open_harden_pr "$base" "$rendered" "$BRANCH_BLOB"
 }
 
 setup_review_secret() {
@@ -303,11 +421,17 @@ setup_review_secret() {
 }
 
 run_review() {
+  local vis
+  if [ "$PUBLIC" != 1 ]; then
+    vis=$(gh repo view "$REPO" --json visibility --jq .visibility) || die "failed to read visibility"
+    if [ "$vis" = PUBLIC ]; then PUBLIC=1; echo "note public repo: treating as --public"; fi
+  fi
   if [ "$PUBLIC" = 1 ]; then
     case "${BOOTSTRAP_REVIEW_RUNS_ON:-}" in
       *self-hosted*) die "--public refuses a self-hosted runs-on for the review caller" ;;
     esac
   fi
+  resolve_review_sha
   setup_label
   setup_review_allowlist
   setup_review_caller
