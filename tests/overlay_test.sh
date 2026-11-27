@@ -131,7 +131,7 @@ run_seed_from_home() {
   echo 'my log' > "$home/.claude/commands/log.md"
   HOME="$home" DOTFILES_OVERLAY="$ovs" "$REPO/install.sh" --seed-overlay >/dev/null </dev/null
   check "seeds a locally changed file" "content_is '$ovs/claude/commands/log.md' 'my log'"
-  check "seeds only that file" "[ \"\$(find '$ovs' -type f | wc -l)\" -eq 1 ]"
+  check "seeds only that file" "[ \"\$(find '$ovs' -type f -not -name .provenance | wc -l)\" -eq 1 ]"
 }
 
 run_doctor() {

@@ -5,18 +5,25 @@
 #   --no-deps                  skip package installs
 #   --seed-overlay             copy installed files that differ from the repo into the overlay, then exit
 #   --seed-overlay-from DIR    same, reading from a backup dir such as ~/.dotfiles-backup/<timestamp>
+#   --record-overlay           write .provenance rows for existing overlay files against the repo HEAD, copy nothing, then exit
+# Seeding never copies hooks, tests, settings/CLAUDE.md templates, install.sh, scripts/ or .github/ (see scripts/overlay-lib.sh).
 # Overlay root: $DOTFILES_OVERLAY, default ~/.config/do-no-work/overlay (mirrors repo paths; wins over the repo).
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/overlay-lib.sh
+. "$REPO/scripts/overlay-lib.sh"
 MODE="link"
 DEPS=1
 SEED=""
+RECORD=0
+SEEDED_LIST=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --copy) MODE=copy ;;
     --no-deps) DEPS=0 ;;
     --seed-overlay) SEED="$HOME" ;;
+    --record-overlay) RECORD=1 ;;
     --seed-overlay-from)
       [ $# -ge 2 ] || { echo "--seed-overlay-from needs a directory" >&2; exit 2; }
       [ -d "$2" ] || { echo "not a directory: $2" >&2; exit 2; }
@@ -92,7 +99,10 @@ place_manifest() {
   while IFS=$'\t' read -r src dst origin; do
     detach_linked_parent "$dst"
     place "$src" "$dst"
-    [ "$origin" = overlay ] && n=$((n + 1))
+    if [ "$origin" = overlay ]; then
+      n=$((n + 1))
+      prov_record "$OVERLAY" "$REPO" "${src#"$OVERLAY"/}"
+    fi
   done < <("$REPO/scripts/install-manifest.sh" "$REPO")
   [ "$n" -eq 0 ] || log "$n files from overlay $OVERLAY"
   return 0
@@ -102,10 +112,12 @@ seed_one() {
   local src="$1" inst="$2" rel="${1#"$REPO"/}"
   [ -f "$inst" ] || return 0
   cmp -s "$src" "$inst" && return 0
+  if ! overlayable "$rel"; then echo "skip (not overlayable): $rel"; return 0; fi
   if [ -e "$OVERLAY/$rel" ]; then log "kept existing overlay/$rel"; return 0; fi
   mkdir -p "$(dirname "$OVERLAY/$rel")"
   cp "$inst" "$OVERLAY/$rel"
-  log "seeded overlay/$rel"
+  prov_record "$OVERLAY" "$REPO" "$rel"
+  SEEDED_LIST+=("$rel")
 }
 
 seed_overlay() {
@@ -118,6 +130,26 @@ seed_overlay() {
       seed_one "$src" "$root${dst#"$HOME"}"
     fi
   done < <(DOTFILES_OVERLAY=/nonexistent/dnw-no-overlay "$REPO/scripts/install-manifest.sh" "$REPO")
+}
+
+seed_report() {
+  local rel
+  [ "${#SEEDED_LIST[@]}" -gt 0 ] || return 0
+  for rel in "${SEEDED_LIST[@]}"; do printf 'seeded: %s\n' "$rel"; done
+  echo "Review: these now override the repo; delete any that aren't personal from $OVERLAY"
+}
+
+record_overlay() {
+  local rel
+  [ -d "$OVERLAY" ] || { log "no overlay at $OVERLAY"; return 0; }
+  while IFS= read -r rel; do
+    [ "$rel" = .provenance ] && continue
+    overlayable "$rel" || continue
+    [ -n "$(prov_lookup "$OVERLAY" "$rel")" ] && continue
+    prov_record "$OVERLAY" "$REPO" "$rel"
+    [ -n "$(prov_lookup "$OVERLAY" "$rel")" ] && echo "recorded: $rel"
+  done < <(cd "$OVERLAY" && find . -type f | sed 's|^\./||' | LC_ALL=C sort)
+  return 0
 }
 
 install_claude() {
@@ -161,7 +193,8 @@ install_upstream_skills() {
   done
 }
 
-if [ -n "$SEED" ]; then seed_overlay "$SEED"; exit 0; fi
+if [ "$RECORD" = 1 ]; then record_overlay; exit 0; fi
+if [ -n "$SEED" ]; then seed_overlay "$SEED"; seed_report; exit 0; fi
 if [ "$DEPS" = 1 ]; then install_deps; install_cli_tools; fi
 chmod +x "$REPO"/bin/* "$REPO"/claude/hooks/*.sh
 place_manifest
