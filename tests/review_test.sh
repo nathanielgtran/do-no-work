@@ -15,11 +15,12 @@ cat > "$TMP/bin/gh" <<'FAKE'
 #!/bin/bash
 echo "$*" >> "$GH_LOG"
 DEFAULT_LABELS='[{"name":"REVIEWED"}]'
+DEFAULT_RUNNERS='{"runners":[]}'
 if [[ "$*" == *"--input -"* ]]; then cat >> "$GH_BODY"; echo >> "$GH_BODY"; fi
 case "$*" in
   "pr create"*) cat >> "$GH_PRBODY"; echo "https://github.com/o/r/pull/1" ;;
   "pr list"*) case "$*" in *review-harden*) echo "${FAKE_PR_HARDEN:-}" ;; *) echo "${FAKE_PR:-}" ;; esac ;;
-  *"/actions/runners?"*) echo "${FAKE_RUNNERS:-{\"runners\":[]\}}" ;;
+  *"/actions/runners?"*) echo "${FAKE_RUNNERS:-$DEFAULT_RUNNERS}" ;;
   *"commits/"*) echo "${FAKE_SHA:-cccccccccccccccccccccccccccccccccccccccc}" ;;
   *"contents/.github/workflows/review.yml"*"--jq .sha"*) echo blob123 ;;
   *"contents/.github/workflows/review.yml?ref=NO-TICKET"*)
