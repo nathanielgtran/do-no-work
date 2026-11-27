@@ -1,0 +1,1 @@
+`dnw-doctor` read-only drift check (installed files, settings.json hook/deny/statusLine wiring, git identity, shell rc, tools; `--json`, exit 1 on fail); install.sh and the doctor share `scripts/install-manifest.sh`

@@ -62,38 +62,34 @@ install_cli_tools() {
   fi
 }
 
+place_manifest() {
+  local src dst
+  while IFS=$'\t' read -r src dst; do place "$src" "$dst"; done < <("$REPO/scripts/install-manifest.sh" "$REPO")
+}
+
 install_claude() {
   local c="$HOME/.claude"
-  mkdir -p "$c/hooks" "$c/commands" "$c/skills" "$c/agents"
-  for f in "$REPO"/claude/hooks/*.sh; do place "$f" "$c/hooks/$(basename "$f")"; done
-  for f in "$REPO"/claude/commands/*.md; do place "$f" "$c/commands/$(basename "$f")"; done
-  for f in "$REPO"/claude/agents/*.md; do place "$f" "$c/agents/$(basename "$f")"; done
-  for d in "$REPO"/claude/skills/*/; do place "${d%/}" "$c/skills/$(basename "$d")"; done
   [ -f "$c/autonomy-level" ] || echo full > "$c/autonomy-level"
   if [ ! -f "$HOME/CLAUDE.md" ]; then
     cp "$REPO/claude/CLAUDE.md.example" "$HOME/CLAUDE.md"
     log "wrote ~/CLAUDE.md from template; fill in <NAME>/<ROLE>"
   fi
-  log "hooks need wiring: merge claude/settings.example.json into ~/.claude/settings.json (not done automatically)"
+  log "hooks need wiring: merge claude/settings.example.json into ~/.claude/settings.json (not done automatically); run bin/dnw-doctor to check"
 }
 
-install_bin() {
-  for f in "$REPO"/bin/*; do place "$f" "$HOME/.local/bin/$(basename "$f")"; done
-  chmod +x "$REPO"/bin/* "$REPO"/claude/hooks/*.sh
-}
-
-install_home() {
-  place "$REPO/home/gitconfig" "$HOME/.gitconfig"
-  place "$REPO/home/gitignore_global" "$HOME/.gitignore_global"
-  place "$REPO/home/ohmyposh-theme.json" "$HOME/.config/ohmyposh/theme.json"
-  place "$REPO/home/bashrc.d/dotfiles.sh" "$HOME/.config/dotfiles/dotfiles.sh"
-  if [ ! -f "$HOME/.gitconfig.local" ]; then
-    local n="${GIT_NAME:-}" e="${GIT_EMAIL:-}"
-    if [ -z "$n" ] && [ -t 0 ]; then read -rp "git user.name: " n; read -rp "git user.email: " e; fi
-    if [ -z "$n" ]; then read -r n || true; read -r e || true; fi
-    [ -n "$n" ] || { log "set GIT_NAME/GIT_EMAIL or create ~/.gitconfig.local yourself"; return 0; }
-    printf '[user]\n\tname = %s\n\temail = %s\n' "$n" "$e" > "$HOME/.gitconfig.local"
+install_identity() {
+  [ -f "$HOME/.gitconfig.local" ] && return 0
+  local n="${GIT_NAME:-}" e="${GIT_EMAIL:-}"
+  if [ -z "$n" ] && [ -t 0 ]; then read -rp "git user.name: " n; read -rp "git user.email: " e; fi
+  if [ -z "$n" ]; then read -r n || true; read -r e || true; fi
+  if [ -z "$n" ]; then
+    log "no git identity: set GIT_NAME/GIT_EMAIL or create ~/.gitconfig.local yourself"
+    return 0
   fi
+  printf '[user]\n\tname = %s\n\temail = %s\n' "$n" "$e" > "$HOME/.gitconfig.local"
+}
+
+install_rc() {
   local rcs=("$HOME/.bashrc")
   [ "$(uname)" = Darwin ] && rcs=("$HOME/.bash_profile" "$HOME/.zshrc")
   local line='[ -f "$HOME/.config/dotfiles/dotfiles.sh" ] && . "$HOME/.config/dotfiles/dotfiles.sh"'
@@ -113,8 +109,10 @@ install_upstream_skills() {
 }
 
 if [ "$DEPS" = 1 ]; then install_deps; install_cli_tools; fi
-install_home
-install_bin
+chmod +x "$REPO"/bin/* "$REPO"/claude/hooks/*.sh
+place_manifest
+install_identity
+install_rc
 install_claude
 install_upstream_skills
 log "done. Open a new shell."

@@ -62,6 +62,8 @@ jobs:
           ./tests/changelog_test.sh
       - name: Review rollout
         run: ./tests/review_test.sh
+      - name: dnw-doctor
+        run: ./tests/doctor_test.sh
 
   windows:
     runs-on: windows-latest
