@@ -1,9 +1,9 @@
 #!/bin/bash
 # Runs bin/fleet against a fake gh serving canned pr list JSON per repo and canned run logs.
+# shellcheck disable=SC2034 # vars are read inside check()'s eval strings
 set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 fail=0
-# shellcheck disable=SC2034 # vars are read inside check()'s eval strings
 check() { if eval "$2"; then echo "ok   $1"; else echo "FAIL $1"; fail=1; fi; }
 
 TMP="$(mktemp -d)"
