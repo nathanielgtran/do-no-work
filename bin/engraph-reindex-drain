@@ -1,0 +1,135 @@
+#!/bin/bash
+# engraph-reindex-drain - drain the engraph reindex queue (see engraph-enqueue).
+# Single instance. Takes the whole queue, dedupes, syncs the vault to the index host, then
+# calls MCP reindex_file for each file one at a time. Failures are retried up to
+# MAX_ATTEMPTS times, then written to reindex.failed. Loops until the queue is empty.
+# Set ENGRAPH_SYNC_CMD to a command that copies the vault to the index host when the
+# MCP server runs on another machine.
+set -uo pipefail
+export PATH="/home/linuxbrew/.linuxbrew/bin:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin"
+
+STATE="${ENGRAPH_QUEUE_DIR:-$HOME/.local/state/engraph}"
+QUEUE="$STATE/reindex.queue"
+FAILED="$STATE/reindex.failed"
+URL="${ENGRAPH_MCP_URL:-http://127.0.0.1:8765/mcp}"
+CALL_TIMEOUT="${ENGRAPH_CALL_TIMEOUT:-900}"
+MAX_ATTEMPTS=3
+MAX_BYTES="${ENGRAPH_MAX_BYTES:-30000}"
+MEM_SRC="$HOME/.claude/projects/${HOME//\//-}-Github/memory"
+KB_SRC="$HOME/Github/personal-kb"
+HDRS=(-H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream')
+
+log() { echo "engraph-drain: $*"; }
+
+# Move the queue aside atomically and print it deduped (highest attempt count wins).
+take_batch() {
+    local batch="$STATE/reindex.batch"
+    ( flock 9
+      [[ -s "$QUEUE" ]] || exit 1
+      mv "$QUEUE" "$batch"
+    ) 9>"$QUEUE.lock" || return 1
+    awk -F'\t' 'NF==2 { if (!($2 in a) || $1 > a[$2]) a[$2] = $1 } END { for (p in a) print a[p] "\t" p }' "$batch"
+    rm -f "$batch"
+}
+
+requeue() {
+    ( flock 9; printf '%s\t%s\n' "$1" "$2" >> "$QUEUE" ) 9>"$QUEUE.lock"
+}
+
+# Open an MCP session; prints the session id.
+mcp_session() {
+    local hdr sid
+    hdr="$(mktemp)"
+    curl -s -m 30 -D "$hdr" "${HDRS[@]}" "$URL" -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"engraph-drain","version":"1"}}}' >/dev/null
+    sid="$(grep -i '^mcp-session-id:' "$hdr" | awk '{print $2}' | tr -d '\r')"
+    rm -f "$hdr"
+    [[ -n "$sid" ]] || return 1
+    curl -s -m 30 "${HDRS[@]}" -H "mcp-session-id: $sid" "$URL" -d '{"jsonrpc":"2.0","method":"notifications/initialized"}' >/dev/null
+    printf '%s\n' "$sid"
+}
+
+mcp_close() {
+    curl -s -m 10 -X DELETE -H "mcp-session-id: $1" "$URL" >/dev/null || true
+}
+
+# Reindex one vault file. Returns 0 on success; prints the server's reply.
+reindex_one() {
+    local sid="$1" file="$2" body reply
+    body="$(jq -nc --arg f "$file" '{jsonrpc:"2.0",id:2,method:"tools/call",params:{name:"reindex_file",arguments:{file:$f}}}')"
+    reply="$(curl -s -m "$CALL_TIMEOUT" "${HDRS[@]}" -H "mcp-session-id: $sid" "$URL" -d "$body" \
+        | sed -n 's/^data: //p; /^{/p' | tail -1)"
+    [[ -n "$reply" ]] || { echo "no reply (timeout ${CALL_TIMEOUT}s?)"; return 1; }
+    if jq -e '.error or .result.isError' >/dev/null 2>&1 <<<"$reply"; then
+        jq -c '.error // .result.content' <<<"$reply"
+        return 1
+    fi
+    jq -r '.result.content[0].text' <<<"$reply" | jq -c '{chunks,file}' 2>/dev/null || echo ok
+}
+
+handle_failure() {
+    local attempt="$1" file="$2" why="$3"
+    if (( attempt + 1 >= MAX_ATTEMPTS )); then
+        log "GAVE UP $file after $MAX_ATTEMPTS attempts: $why"
+        printf '%s\t%s\t%s\n' "$(date -Is)" "$file" "$why" >> "$FAILED"
+    else
+        log "retry later $file (attempt $((attempt + 1))): $why"
+        requeue "$((attempt + 1))" "$file"
+    fi
+}
+
+# Big files block the single-threaded server (and every session's searches) for
+# minutes; leave them to the nightly CLI index (engraph-nightly-index), which is fast.
+too_big() {
+    local src
+    case "$1" in
+        memory/*)      src="$MEM_SRC/${1#memory/}" ;;
+        personal-kb/*) src="$KB_SRC/${1#personal-kb/}" ;;
+    esac
+    [[ -f "$src" ]] && (( $(stat -c %s "$src") > MAX_BYTES ))
+}
+
+drain_batch() {
+    local batch="$1" sid attempt file out failed=0
+    if [[ -n "${ENGRAPH_SYNC_CMD:-}" ]]; then
+        $ENGRAPH_SYNC_CMD || log "sync to index host failed; reindexing whatever the index host has"
+    fi
+    if ! sid="$(mcp_session)"; then
+        log "MCP not reachable at $URL; requeueing batch"
+        while IFS=$'\t' read -r attempt file; do
+            [[ -n "$file" ]] && requeue "$attempt" "$file"
+        done <<<"$batch"
+        return 1
+    fi
+    while IFS=$'\t' read -r attempt file; do
+        [[ -n "$file" ]] || continue
+        if too_big "$file"; then
+            log "deferred $file (> ${MAX_BYTES} bytes, nightly index picks it up)"
+            continue
+        fi
+        if out="$(reindex_one "$sid" "$file")"; then
+            log "ok $file $out"
+        else
+            handle_failure "$attempt" "$file" "$out"
+            failed=1
+        fi
+    done <<<"$batch"
+    mcp_close "$sid"
+    return "$failed"
+}
+
+main() {
+    mkdir -p "$STATE"
+    exec 8>"$STATE/drain.lock"
+    flock -n 8 || { log "another drain is running"; exit 0; }
+    local batch rounds=0
+    while batch="$(take_batch)"; do
+        if ! drain_batch "$batch"; then
+            # Server down or items failed: back off so retries aren't instant.
+            rounds=$((rounds + 1))
+            (( rounds >= MAX_ATTEMPTS )) && { log "stopping; items stay queued for the timer"; break; }
+            sleep 60
+        fi
+    done
+}
+
+main "$@"

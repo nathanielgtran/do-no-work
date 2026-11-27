@@ -1,0 +1,68 @@
+#!/bin/bash
+# Claude Code statusLine command: prints usage, and rewrites the pstack model
+# rule so new sessions pick a budget that fits current plan usage.
+# Tiers use the higher of the 5-hour and 7-day used_percentage:
+#   < 50 large (xhigh), < 80 medium (high), else small (medium).
+set -euo pipefail
+
+RULE="${PSTACK_RULE:-$HOME/.claude/rules/pstack-models.md}"
+
+tier_for() {
+  local pct="$1"
+  if [ "$pct" -lt 50 ]; then echo large
+  elif [ "$pct" -lt 80 ]; then echo medium
+  else echo small
+  fi
+}
+
+rule_body() {
+  local hi mid lo label
+  case "$1" in
+    large)  hi=xhigh;  mid=high;   lo=medium; label="large (xhigh)" ;;
+    medium) hi=high;   mid=medium; lo=low;    label="medium (high)" ;;
+    *)      hi=medium; mid=low;    lo=low;    label="small (medium)" ;;
+  esac
+  cat <<EOF
+# pstack model configuration. Written by pstack-budget-statusline from plan usage; hand edits are overwritten.
+# \`inherit-parent\` or \`auto\` as a value: the role runs on the parent chat model (omit Agent \`model\`). Alias entries in a panel list still count toward its fan-out.
+# defaults: 3
+# budget: $label
+feature, refactoring: sonnet $hi
+bug-fix: sonnet $hi
+perf-issue: sonnet $hi
+hillclimb: sonnet $hi
+judgment and prose: opus $hi
+arena runners: fable $mid, opus $mid, inherit-parent
+arena cross-judge pool: opus $mid, inherit-parent
+swarm workers: sonnet $mid
+interrogate reviewers: fable $mid, opus $mid, inherit-parent
+EOF
+}
+
+write_rule() {
+  local body tmp
+  body=$(rule_body "$1")
+  if [ -f "$RULE" ] && [ "$(cat "$RULE")" = "$body" ]; then return 0; fi
+  mkdir -p "$(dirname "$RULE")"
+  tmp=$(mktemp "$RULE.XXXXXX")
+  printf '%s\n' "$body" > "$tmp"
+  mv "$tmp" "$RULE"
+}
+
+main() {
+  local input five week pct tier model
+  input=$(cat)
+  model=$(jq -r '.model.display_name // "?"' <<<"$input")
+  five=$(jq -r '.rate_limits.five_hour.used_percentage // empty | floor' <<<"$input")
+  week=$(jq -r '.rate_limits.seven_day.used_percentage // empty | floor' <<<"$input")
+  if [ -z "$five" ] && [ -z "$week" ]; then
+    echo "$model | usage n/a"
+    return 0
+  fi
+  pct=$(( ${five:-0} > ${week:-0} ? ${five:-0} : ${week:-0} ))
+  tier=$(tier_for "$pct")
+  write_rule "$tier"
+  echo "$model | 5h ${five:-?}% | 7d ${week:-?}% | pstack $tier"
+}
+
+main

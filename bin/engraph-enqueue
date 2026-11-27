@@ -1,0 +1,43 @@
+#!/bin/bash
+# engraph-enqueue - queue vault files for reindexing on the engraph server.
+#   engraph-enqueue <file>...   vault-relative (memory/x.md, personal-kb/a/b.md)
+#                               or absolute source paths (mapped to vault paths)
+# Returns immediately. engraph-reindex-drain (systemd path unit) syncs to the index
+# host and reindexes each queued file once, serially, with a long timeout and retries.
+set -euo pipefail
+
+STATE="${ENGRAPH_QUEUE_DIR:-$HOME/.local/state/engraph}"
+QUEUE="$STATE/reindex.queue"
+MEM_SRC="$HOME/.claude/projects/${HOME//\//-}-Github/memory"
+KB_SRC="$HOME/Github/personal-kb"
+VAULT="$HOME/engraph-vault"
+
+die() { echo "engraph-enqueue: $*" >&2; exit 1; }
+
+to_vault_path() {
+    local p="$1"
+    if [[ "$p" = /* ]]; then
+        p="$(readlink -m "$p")"
+        case "$p" in
+            "$MEM_SRC"/*) p="memory/${p#"$MEM_SRC"/}" ;;
+            "$KB_SRC"/*)  p="personal-kb/${p#"$KB_SRC"/}" ;;
+            "$VAULT"/*)   p="${p#"$VAULT"/}" ;;
+            *) die "not under memory, personal-kb or the vault: $1" ;;
+        esac
+    fi
+    [[ "$p" == memory/* || "$p" == personal-kb/* ]] || die "not a vault path: $1"
+    [[ "$p" == *.md ]] || die "not a markdown file: $1"
+    printf '%s\n' "$p"
+}
+
+[[ $# -gt 0 ]] || die "usage: engraph-enqueue <file>..."
+mkdir -p "$STATE"
+
+lines=""
+for arg in "$@"; do
+    lines+="0	$(to_vault_path "$arg")"$'\n'
+done
+
+# Attempt count 0, tab, vault path. Locked append so concurrent sessions don't interleave.
+( flock 9; printf '%s' "$lines" >> "$QUEUE" ) 9>"$QUEUE.lock"
+printf 'queued: %s\n' "$(printf '%s' "$lines" | cut -f2 | paste -sd' ')"

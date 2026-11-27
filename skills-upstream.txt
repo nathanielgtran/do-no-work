@@ -1,0 +1,7 @@
+# Third-party skills, installed from upstream by install.sh / install.ps1
+# via `npx skills add <owner/repo>`. Not vendored here; licences stay with the authors.
+pbakaus/impeccable
+nextlevelbuilder/ui-ux-pro-max-skill
+vercel-labs/skills
+cloudflare/skills
+

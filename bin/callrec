@@ -1,0 +1,107 @@
+#!/bin/bash
+# callrec - start/stop OBS call recordings from WSL via obs-websocket, then transcribe.
+#   callrec start                 launch OBS if needed, record mic + desktop audio
+#   callrec stop [--no-transcribe] stop, then run `transcribe` on the file
+#   callrec status                is it recording, and for how long
+# Password: env OBS_WS_PASSWORD, else OBS's own websocket config, else pass personal/obs-websocket.
+set -euo pipefail
+
+HERE="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+OBS_DIR="${CALLREC_OBS_DIR:-C:\Program Files\obs-studio\bin\64bit}"
+WIN_HOME="${WIN_HOME:-$(wslpath "$(cmd.exe /c "echo %USERPROFILE%" 2>/dev/null | tr -d '\r')")}"
+REC_DIR="${CALLREC_REC_DIR:-$(wslpath -w "$WIN_HOME/Recordings")}"
+OBS_WS_CONFIG="${CALLREC_OBS_WS_CONFIG:-$WIN_HOME/AppData/Roaming/obs-studio/plugin_config/obs-websocket/config.json}"
+SETTLE_SECS="${CALLREC_SETTLE_SECS:-2}"
+CLIENT="$(wslpath -w "$HERE/../lib/obsws.ps1")"
+
+die() { echo "callrec: $*" >&2; exit 1; }
+
+# OBS already stores the password in plaintext in its own config, so read it from
+# there first; pass is the fallback (it may block on pinentry).
+load_password() {
+    if [[ -n "${OBS_WS_PASSWORD:-}" ]]; then return; fi
+    if [[ -r "$OBS_WS_CONFIG" ]]; then
+        OBS_WS_PASSWORD="$(jq -r '.server_password // empty' "$OBS_WS_CONFIG")"
+    fi
+    if [[ -z "${OBS_WS_PASSWORD:-}" ]]; then
+        OBS_WS_PASSWORD="$(pass show personal/obs-websocket)" || die "could not read OBS websocket password"
+    fi
+    export OBS_WS_PASSWORD
+}
+
+# obs '<json array of requests>' -> prints one JSON line per response
+obs() {
+    OBS_WS_REQUESTS="$1" WSLENV="OBS_WS_PASSWORD:OBS_WS_REQUESTS" \
+        powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$CLIENT" | tr -d '\r'
+}
+
+obs_running() {
+    local procs
+    procs=$(tasklist.exe /FI "IMAGENAME eq obs64.exe" /NH 2>/dev/null || true)
+    [[ "${procs,,}" == *obs64* ]]
+}
+
+launch_obs() {
+    echo "starting OBS..."
+    (cd /mnt/c && cmd.exe /c start "" /d "$OBS_DIR" obs64.exe --minimize-to-tray --disable-shutdown-check >/dev/null 2>&1)
+    for _ in $(seq 1 30); do
+        if obs '[{"requestType":"GetVersion"}]' >/dev/null 2>&1; then return; fi
+        sleep 1
+    done
+    die "OBS started but websocket not reachable on :4455 (enabled in Tools > WebSocket Server Settings?)"
+}
+
+recording_active() {
+    obs '[{"requestType":"GetRecordStatus"}]' | jq -e '.data.outputActive' >/dev/null
+}
+
+cmd_start() {
+    obs_running || launch_obs
+    if recording_active; then die "already recording ($(cmd_status))"; fi
+    local reqs
+    reqs=$(jq -nc --arg dir "$REC_DIR" '[
+        {requestType:"SetRecordDirectory", requestData:{recordDirectory:$dir}},
+        {requestType:"SetProfileParameter", requestData:{parameterCategory:"SimpleOutput", parameterName:"RecFormat2", parameterValue:"mkv"}},
+        {requestType:"StartRecord"}
+    ]')
+    local out
+    out=$(obs "$reqs") || die "start failed: $(jq -r 'select(.ok|not) | "\(.requestType): \(.comment)"' <<<"$out")"
+    echo "recording -> $REC_DIR (stop with: callrec stop)"
+}
+
+cmd_stop() {
+    local transcribe_after=1
+    [[ "${1:-}" == "--no-transcribe" ]] && transcribe_after=0
+    obs_running || die "OBS is not running"
+    recording_active || die "not recording"
+    local out win_path wsl_path
+    out=$(obs '[{"requestType":"StopRecord"}]')
+    win_path=$(jq -r '.data.outputPath' <<<"$out")
+    [[ -n "$win_path" && "$win_path" != "null" ]] || die "stop returned no file: $out"
+    wsl_path=$(wslpath -u "$win_path")
+    echo "saved $wsl_path"
+    if (( transcribe_after )); then
+        sleep "$SETTLE_SECS"  # let OBS finish writing the file
+        transcribe "$wsl_path"
+    fi
+}
+
+cmd_status() {
+    obs_running || { echo "OBS not running"; return; }
+    obs '[{"requestType":"GetRecordStatus"}]' | jq -r '
+        if .data.outputActive then "recording \(.data.outputTimecode | split(".")[0])"
+        else "not recording" end'
+}
+
+main() {
+    local sub="${1:-}"
+    shift || true
+    case "$sub" in
+        start)  load_password; cmd_start ;;
+        stop)   load_password; cmd_stop "$@" ;;
+        status) load_password; cmd_status ;;
+        *)      echo "usage: callrec start | stop [--no-transcribe] | status" >&2; exit 64 ;;
+    esac
+}
+
+main "$@"

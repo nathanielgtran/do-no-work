@@ -1,0 +1,51 @@
+#!/usr/bin/env python3
+# Run with mcp-proxy's interpreter, e.g. ~/.local/share/uv/tools/mcp-proxy/bin/python
+# Launcher: runs mcp-proxy's normal main, but wraps its Starlette app with a
+# Host/Origin allowlist (blocks DNS rebinding + cross-origin browser requests).
+import json
+import sys
+
+from starlette.applications import Starlette
+
+import mcp_proxy.mcp_server as ms
+from mcp_proxy.__main__ import main
+
+HOSTS = {"127.0.0.1:8765", "localhost:8765"}
+ORIGINS = {"http://127.0.0.1:8765", "http://localhost:8765"}
+
+
+class HostOriginGuard:
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] not in ("http", "websocket"):
+            return await self.app(scope, receive, send)
+        hdrs = {k.decode("latin-1").lower(): v.decode("latin-1") for k, v in scope["headers"]}
+        bad = hdrs.get("host", "") not in HOSTS or (
+            "origin" in hdrs and hdrs["origin"] not in ORIGINS
+        )
+        if not bad:
+            return await self.app(scope, receive, send)
+        print(f"engraph-mcp-proxy: rejected host={hdrs.get('host')!r} origin={hdrs.get('origin')!r}",
+              file=sys.stderr, flush=True)
+        if scope["type"] == "websocket":
+            return await send({"type": "websocket.close", "code": 1008})
+        body = json.dumps({"error": "forbidden host or origin"}).encode()
+        await send({"type": "http.response.start", "status": 403,
+                    "headers": [(b"content-type", b"application/json"),
+                                (b"content-length", str(len(body)).encode())]})
+        await send({"type": "http.response.body", "body": body})
+
+
+class GuardedStarlette(Starlette):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.add_middleware(HostOriginGuard)
+
+
+ms.Starlette = GuardedStarlette
+
+if __name__ == "__main__":
+    sys.argv[0] = "mcp-proxy"
+    sys.exit(main())
