@@ -46,6 +46,8 @@ jobs:
         run: |
           bash claude/skills/tighten/tests/preflight_test.sh
           bash claude/skills/tighten/tests/tier_test.sh
+      - name: Claude review verdict
+        run: ./tests/claude_review_verdict_test.sh
 
   gitleaks:
     runs-on: ubuntu-latest

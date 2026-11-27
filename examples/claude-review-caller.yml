@@ -1,0 +1,18 @@
+# Copy to .github/workflows/review.yml in a repo that should get the REVIEWED label.
+# Needs the secret: gh secret set CLAUDE_CODE_OAUTH_TOKEN -R owner/repo  (token from `claude setup-token`)
+# and a label named REVIEWED in the repo.
+name: review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+jobs:
+  claude-review:
+    uses: nathanielgtran/do-no-work/.github/workflows/claude-review.yml@main
+    # Public repos: leave runs-on at its default (ubuntu-latest), never self-hosted.
+    # Private fleet repos may add:
+    # with:
+    #   runs-on: '["self-hosted","nuc"]'
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
