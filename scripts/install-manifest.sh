@@ -6,6 +6,9 @@
 # Usage: install-manifest.sh [REPO]   (dst paths are rooted at $HOME)
 set -euo pipefail
 
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/overlay-lib.sh
+. "$SELF_DIR/overlay-lib.sh"
 REPO="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 OV="${DOTFILES_OVERLAY:-$HOME/.config/do-no-work/overlay}"
 c="$HOME/.claude"
@@ -28,9 +31,21 @@ dst_for() {
   esac
 }
 
+# An overlay file on a non-overlayable path is never applied; warn and fall back to the repo file.
+ignore_overlay() {
+  [ -f "$OV/$1" ] || return 1
+  overlayable "$1" && return 1
+  echo "install-manifest: ignoring overlay/$1 (not overlayable); using the repo file" >&2
+  return 0
+}
+
 emit_rel() {
   local rel="$1" dst
   dst="$(dst_for "$rel")" || return 0
+  if ignore_overlay "$rel"; then
+    [ -f "$REPO/$rel" ] && emit "$REPO/$rel" "$dst" repo
+    return 0
+  fi
   if [ -f "$OV/$rel" ]; then emit "$OV/$rel" "$dst" overlay; else emit "$REPO/$rel" "$dst" repo; fi
 }
 
@@ -41,7 +56,9 @@ files_in() {
 
 emit_skill() {
   local name="$1" rel ov_files
-  ov_files="$(files_in "$OV/claude/skills/$name")"
+  ov_files="$(files_in "$OV/claude/skills/$name" | while IFS= read -r rel; do
+    ignore_overlay "claude/skills/$name/$rel" || printf '%s\n' "$rel"
+  done)"
   if [ -z "$ov_files" ]; then emit "$REPO/claude/skills/$name" "$c/skills/$name" repo; return 0; fi
   { files_in "$REPO/claude/skills/$name"; printf '%s\n' "$ov_files"; } | LC_ALL=C sort -u | while IFS= read -r rel; do
     if [ -f "$OV/claude/skills/$name/$rel" ]; then

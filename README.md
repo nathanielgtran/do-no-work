@@ -122,6 +122,12 @@ Set `DOTFILES_OVERLAY` to use another root. `install.sh` and `dnw-doctor` both r
 
 Seeding never overwrites an existing overlay file and does not install anything.
 
+**What never gets overlaid.** An overlay file shadows the repo copy forever, so a stale copy silently reverts later fixes. A backup holds old versions of everything, so seeding refuses paths where that is dangerous: anything under `claude/hooks/` (security hooks), test files (`tests/`, `*_test.*`, `test_*.py`, `*/tests/*`), `claude/settings.example.json`, `claude/CLAUDE.md.example`, `install.sh`, `scripts/` and `.github/`. Each is printed as `skip (not overlayable): <path>`. The same list applies at install time: an overlay file on one of those paths is ignored with a warning on stderr and the repo file is used. The list lives in `scripts/overlay-lib.sh`.
+
+**Review list.** Seeding ends with `seeded: <path>` for every file it copied and a reminder to delete any that are not really personal.
+
+**Provenance.** Each seeded file gets a row in `<overlay>/.provenance` (path, the repo file's blob SHA at that time, date); install adds a row the first time it sees an overlay file that shadows a repo file. `dnw-doctor` warns `<path> shadows a repo file that changed since it was seeded (repo <old>..<new>)` when the repo copy has moved on, with `diff` and remove-it fixes. Overlay files with no row (made before this existed) get one warning; `./install.sh --record-overlay` records them against the current repo and copies nothing.
+
 ### New repo
 
 Apply the fleet defaults (Actions lockdown, squash-only merges, secret scanning, `REVIEWED` label, `protect-main` ruleset) to an existing GitHub repo. It is idempotent; `--dry-run` prints the calls without making them.

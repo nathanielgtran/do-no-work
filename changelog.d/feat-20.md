@@ -1,0 +1,1 @@
+Overlay provenance: seeding and install record the repo blob SHA in `<overlay>/.provenance`, `dnw-doctor` warns when a shadowed repo file changed since, seeding ends with a `seeded:` review list, and `install.sh --record-overlay` backfills rows without copying

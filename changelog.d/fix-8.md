@@ -1,0 +1,1 @@
+Seeding the overlay never copies hooks, tests, settings/CLAUDE.md templates, `install.sh`, `scripts/` or `.github/` (they print `skip (not overlayable)`), and the install manifest ignores overlay files on those paths and uses the repo file, so a stale backup can no longer shadow a security fix

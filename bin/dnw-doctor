@@ -47,6 +47,8 @@ parse_args() {
   [ -n "$REPO" ] || REPO="$(self_repo)"
   REPO="$(cd "$REPO" && pwd)" || die "bad --repo"
   [ -x "$REPO/scripts/install-manifest.sh" ] || die "$REPO has no scripts/install-manifest.sh; pass --repo"
+  # shellcheck source=scripts/overlay-lib.sh
+  . "$REPO/scripts/overlay-lib.sh"
 }
 
 # Returns 0 when it emitted a problem, 1 when the target is fine.
@@ -72,7 +74,7 @@ check_installed() {
     total=$((total + 1))
     [ "$origin" = overlay ] && OV_FILES+=("${src#"$OVERLAY"/}")
     if check_one_file "$src" "$dst" "$origin"; then bad=$((bad + 1)); fi
-  done < <("$REPO/scripts/install-manifest.sh" "$REPO")
+  done < <("$REPO/scripts/install-manifest.sh" "$REPO" 2>/dev/null)
   [ "$bad" -eq 0 ] && emit ok installed "$total files match the repo and overlay"
   return 0
 }
@@ -83,15 +85,37 @@ join_by_comma() {
   printf '%s' "$out"
 }
 
+# Warn about overlay files that shadow a repo file which changed since seeding, or have no provenance row.
+check_provenance() {
+  local rel old new noprov=()
+  for rel in "${OV_FILES[@]+"${OV_FILES[@]}"}"; do
+    new="$(prov_sha "$REPO" "$rel")"
+    [ -n "$new" ] || continue
+    old="$(prov_lookup "$OVERLAY" "$rel")"
+    if [ -z "$old" ]; then noprov+=("$rel"); continue; fi
+    [ "$old" = "$new" ] && continue
+    emit warn overlay "$rel shadows a repo file that changed since it was seeded (repo ${old:0:7}..${new:0:7})" \
+      "diff '$OVERLAY/$rel' '$REPO/$rel'  # remove it from the overlay if it isn't personal"
+  done
+  [ "${#noprov[@]}" -eq 0 ] && return 0
+  emit warn overlay "${#noprov[@]} overlay files shadow repo files with no provenance ($(join_by_comma "${noprov[@]}"))" \
+    "cd '$REPO' && ./install.sh --record-overlay"
+}
+
 check_overlay() {
   local rel
   [ -d "$OVERLAY" ] || return 0
   [ "${#OV_FILES[@]}" -eq 0 ] || emit ok overlay "${#OV_FILES[@]} files ($(join_by_comma "${OV_FILES[@]}"))"
+  check_provenance
   while IFS= read -r rel; do
+    if ! overlayable "$rel"; then
+      emit warn overlay "ignored: $rel (not overlayable)" "remove it from the overlay: $OVERLAY/$rel"
+      continue
+    fi
     [ -e "$REPO/$rel" ] && continue
     case " $(printf '%s ' "${OV_FILES[@]+"${OV_FILES[@]}"}")" in *" $rel "*) continue ;; esac
     emit warn overlay "overlay/$rel is not under a known dir (hooks, commands, agents, skills, bin, home/bashrc.d) and is not installed" "move it to a known path under $OVERLAY"
-  done < <(cd "$OVERLAY" && find . -type f | sed 's|^\./||' | LC_ALL=C sort)
+  done < <(cd "$OVERLAY" && find . -type f -not -name .provenance | sed 's|^\./||' | LC_ALL=C sort)
   return 0
 }
 
