@@ -126,6 +126,7 @@ reset; rm_caller
 decode "$TMP/r.yml"
 SHA=$(grep -oE '@[0-9a-f]{40}' "$TMP/r.yml" | head -1 | tr -d @)
 check "fork guard on the job" "grep -q '^    if: github.event.pull_request.head.repo.full_name == github.repository\$' '$TMP/r.yml'"
+check "top-level permissions empty" "grep -qx 'permissions: {}' '$TMP/r.yml'"
 check "pinned to a 40-hex SHA with comment" "grep -qE 'claude-review.yml@[0-9a-f]{40} # do-no-work [0-9a-f]{7}\$' '$TMP/r.yml'"
 check "tools-ref matches the pin" "[ -n '$SHA' ] && grep -q 'tools-ref: $SHA\$' '$TMP/r.yml'"
 check "not pinned to main" "! grep -q '@main' '$TMP/r.yml'"
