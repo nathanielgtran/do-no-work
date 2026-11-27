@@ -7,3 +7,4 @@
 - feat-2: CI on GitHub-hosted runners only (installer + skill tests, gitleaks)
 - feat-4: repo-bootstrap applies fleet GitHub defaults (Actions lockdown, squash-only, secret scanning, REVIEWED label, protect-main ruleset) idempotently, with --public self-hosted runner warning and --dry-run
 - feat-5: ci-wait blocks until a PR's checks finish, retries through the no-checks-yet window, exits 0 only if all passed
+- fix-2: autonomy-gate tamper guard checks write targets (redirect target, mutating-command operands, sed -i files, cd into the dir), not any mention of the path
