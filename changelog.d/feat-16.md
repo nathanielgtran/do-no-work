@@ -1,0 +1,1 @@
+repo-bootstrap --review update mode: an existing or open-PR caller is re-rendered and a hardening PR opened or refreshed when it differs, and skip-changelog is applied to caller PRs when the repo has that label

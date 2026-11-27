@@ -1,6 +1,13 @@
-# Copy to .github/workflows/review.yml in a repo that should get the REVIEWED label.
+# Copy to .github/workflows/review.yml in a repo that should get the REVIEWED label, or let
+# `repo-bootstrap owner/repo --review` render it (it fills the placeholders below).
 # Needs the secret: gh secret set CLAUDE_CODE_OAUTH_TOKEN -R owner/repo  (token from `claude setup-token`)
 # and a label named REVIEWED in the repo.
+# Placeholders: __SHA__ = full 40-char commit SHA of nathanielgtran/do-no-work to pin (used for the
+# workflow ref and tools-ref), __SHORT__ = its first 7 chars, __RUNS_ON__ = runner JSON.
+# The job-level `if` skips fork PRs entirely: on pull_request the workflow file comes from the PR,
+# so without it a fork could schedule a job on a self-hosted runner.
+# Public repos: delete the runs-on line (default ubuntu-latest), never self-hosted.
+# Private fleet repos: runs-on is the repo's self-hosted label, e.g. '["self-hosted","nuc-myrepo"]'.
 name: review
 
 on:
@@ -9,13 +16,13 @@ on:
 
 jobs:
   claude-review:
+    if: github.event.pull_request.head.repo.full_name == github.repository
     permissions:
       contents: read
       pull-requests: write
-    uses: nathanielgtran/do-no-work/.github/workflows/claude-review.yml@main
-    # Public repos: leave runs-on at its default (ubuntu-latest), never self-hosted.
-    # Private fleet repos may add:
-    # with:
-    #   runs-on: '["self-hosted","nuc"]'
+    uses: nathanielgtran/do-no-work/.github/workflows/claude-review.yml@__SHA__ # do-no-work __SHORT__
+    with:
+      tools-ref: __SHA__
+      runs-on: '__RUNS_ON__'
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}

@@ -18,7 +18,12 @@ DEFAULT_LABELS='[{"name":"REVIEWED"}]'
 if [[ "$*" == *"--input -"* ]]; then cat >> "$GH_BODY"; echo >> "$GH_BODY"; fi
 case "$*" in
   "pr create"*) cat >> "$GH_PRBODY"; echo "https://github.com/o/r/pull/1" ;;
-  "pr list"*) echo "${FAKE_PR:-}" ;;
+  "pr list"*) case "$*" in *review-harden*) echo "${FAKE_PR_HARDEN:-}" ;; *) echo "${FAKE_PR:-}" ;; esac ;;
+  *"/actions/runners?"*) echo "${FAKE_RUNNERS:-{\"runners\":[]\}}" ;;
+  *"commits/"*) echo "${FAKE_SHA:-cccccccccccccccccccccccccccccccccccccccc}" ;;
+  *"contents/.github/workflows/review.yml"*"--jq .sha"*) echo blob123 ;;
+  *"contents/.github/workflows/review.yml?ref=NO-TICKET"*)
+    if [ -f "$FAKE_BRANCH_CALLER" ]; then cat "$FAKE_BRANCH_CALLER"; else echo "gh: Not Found (HTTP 404)" >&2; exit 1; fi ;;
   "secret list"*) echo "${FAKE_SECRETS:-}" ;;
   "secret set"*) cat >> "$GH_STDIN" ;;
   "repo view"*) echo "${FAKE_VIS:-PRIVATE}" ;;
@@ -41,17 +46,27 @@ chmod +x "$TMP/bin/gh"
 export PATH="$TMP/bin:$PATH"
 export GH_LOG="$TMP/log" GH_BODY="$TMP/body" GH_PRBODY="$TMP/prbody" GH_STDIN="$TMP/stdin"
 export FAKE_CR="$TMP/cr.yml" FAKE_ACTION="$TMP/action.yml" FAKE_SELECTED="$TMP/sel.json"
-export FAKE_CALLER="$TMP/caller.yml" FAKE_EXAMPLE="$REPO/examples/claude-review-caller.yml"
+export FAKE_CALLER="$TMP/caller.yml" FAKE_BRANCH_CALLER="$TMP/branch.yml" FAKE_EXAMPLE="$REPO/examples/claude-review-caller.yml"
 BS="$REPO/bin/repo-bootstrap"
-GOOD_CALLER=$'permissions:\n  pull-requests: write\nuses: nathanielgtran/do-no-work/.github/workflows/claude-review.yml@main\n'
+GOOD_CALLER=""
+OLD_CALLER=$'permissions:\n  pull-requests: write\nuses: nathanielgtran/do-no-work/.github/workflows/claude-review.yml@main\n'
+decode() { grep -o 'content=[^ ]*' "$GH_LOG" | head -1 | cut -d= -f2- | base64 -d > "$1"; }
 
 reset() {
   : > "$GH_LOG"; : > "$GH_BODY"; : > "$GH_PRBODY"; : > "$GH_STDIN"
-  unset FAKE_MODE FAKE_PR FAKE_SECRETS FAKE_LABELS CLAUDE_CODE_OAUTH_TOKEN BOOTSTRAP_REVIEW_RUNS_ON || true
+  unset FAKE_MODE FAKE_PR FAKE_PR_HARDEN FAKE_SECRETS FAKE_LABELS FAKE_RUNNERS FAKE_SHA FAKE_VIS \
+    CLAUDE_CODE_OAUTH_TOKEN BOOTSTRAP_REVIEW_RUNS_ON BOOTSTRAP_REVIEW_REF || true
+  if [ -f "$FAKE_BRANCH_CALLER" ]; then mv "$FAKE_BRANCH_CALLER" "$TMP/branch.gone.$RANDOM"; fi
   printf '{"github_owned_allowed":true,"verified_allowed":false,"patterns_allowed":["astral-sh/setup-uv@*"]}' > "$FAKE_SELECTED"
   printf '%s' "$GOOD_CALLER" > "$FAKE_CALLER"
   export FAKE_SECRETS=CLAUDE_CODE_OAUTH_TOKEN
 }
+
+reset
+mv "$FAKE_CALLER" "$TMP/caller.gone"
+"$BS" o/r --review > "$TMP/out"
+decode "$TMP/good.yml"
+GOOD_CALLER=$(cat "$TMP/good.yml")
 
 echo "-- allowlist merge"
 reset
@@ -100,22 +115,85 @@ reset; rm_caller
 check "public refuses self-hosted runs-on" "! BOOTSTRAP_REVIEW_RUNS_ON=self-hosted '$BS' o/r --review --public >/dev/null 2>&1"
 check "public refusal makes no writes" "! grep -q -- '-X ' '$GH_LOG'"
 reset; rm_caller
+printf '%s' "$GOOD_CALLER" > "$FAKE_BRANCH_CALLER"
 FAKE_PR=https://github.com/o/r/pull/9 "$BS" o/r --review > "$TMP/out"
-check "open PR is not duplicated" "! grep -q -- '-X POST repos/o/r/git/refs' '$GH_LOG' && grep -q 'caller=pr-open' '$TMP/out'"
+check "open current PR is not duplicated" "! grep -q -- '-X .*contents/' '$GH_LOG' && grep -q 'caller=pr-open' '$TMP/out'"
 
-echo "-- caller present"
+echo "-- caller render"
+reset; rm_caller
+"$BS" o/r --review > "$TMP/out"
+decode "$TMP/r.yml"
+SHA=$(grep -oE '@[0-9a-f]{40}' "$TMP/r.yml" | head -1 | tr -d @)
+check "fork guard on the job" "grep -q '^    if: github.event.pull_request.head.repo.full_name == github.repository\$' '$TMP/r.yml'"
+check "pinned to a 40-hex SHA with comment" "grep -qE 'claude-review.yml@[0-9a-f]{40} # do-no-work [0-9a-f]{7}\$' '$TMP/r.yml'"
+check "tools-ref matches the pin" "[ -n '$SHA' ] && grep -q 'tools-ref: $SHA\$' '$TMP/r.yml'"
+check "not pinned to main" "! grep -q '@main' '$TMP/r.yml'"
+check "reads example at the SHA" "grep -q 'claude-review-caller.yml?ref=$SHA' '$GH_LOG'"
+reset; rm_caller
+BOOTSTRAP_REVIEW_REF=v9.9 "$BS" o/r --review > "$TMP/out"
+check "ref override resolved via commits api" "grep -q 'repos/nathanielgtran/do-no-work/commits/v9.9' '$GH_LOG'"
+reset; rm_caller
+check "non-hex resolved ref rejected" "! FAKE_SHA=main '$BS' o/r --review >/dev/null 2>&1"
+check "non-hex rejection makes no writes" "! grep -q -- '-X ' '$GH_LOG'"
+reset; rm_caller
+check "bad ref characters rejected" "! BOOTSTRAP_REVIEW_REF='x;y' '$BS' o/r --review >/dev/null 2>&1"
+
+echo "-- runner auto-pick"
+runs_on_for() { reset; rm_caller; "$@" "$BS" o/r --review > "$TMP/out"; decode "$TMP/r.yml"; }
+runs_on_for env FAKE_RUNNERS='{"runners":[{"labels":[{"name":"self-hosted"},{"name":"Linux"},{"name":"X64"},{"name":"nuc"},{"name":"nuc-kachink"}]}]}'
+check "picks repo-specific nuc-kachink" "grep -qF \"runs-on: '[\\\"self-hosted\\\",\\\"nuc-kachink\\\"]'\" '$TMP/r.yml'"
+runs_on_for env FAKE_RUNNERS='{"runners":[{"labels":[{"name":"self-hosted"},{"name":"nuc"}]}]}'
+check "falls back to nuc" "grep -qF 'runs-on: '\"'\"'[\"self-hosted\",\"nuc\"]' '$TMP/r.yml'"
+runs_on_for env FAKE_RUNNERS='{"runners":[{"labels":[{"name":"self-hosted"},{"name":"nuc"},{"name":"nuc-a"},{"name":"nuc-b"}]}]}'
+check "two specific labels fall back to nuc" "grep -qF '\"nuc\"]' '$TMP/r.yml' && ! grep -q 'nuc-a' '$TMP/r.yml'"
+runs_on_for env FAKE_RUNNERS='{"runners":[]}'
+check "no runners: ubuntu-latest with note" "grep -q 'ubuntu-latest' '$TMP/r.yml' && grep -q '^note runner: no nuc' '$TMP/out'"
+runs_on_for env FAKE_RUNNERS='{"runners":[{"labels":[{"name":"nuc-kachink"},{"name":"nuc"}]}]}' FAKE_VIS=PUBLIC
+check "public repo detected: ubuntu-latest, no runs-on" "! grep -q 'runs-on' '$TMP/r.yml' && ! grep -q 'self-hosted' '$TMP/r.yml'"
+runs_on_for env FAKE_RUNNERS='{"runners":[{"labels":[{"name":"nuc-kachink"},{"name":"nuc"}]}]}' BOOTSTRAP_REVIEW_RUNS_ON=ubuntu-latest
+check "explicit override beats auto" "grep -q 'ubuntu-latest' '$TMP/r.yml' && ! grep -q 'nuc' '$TMP/r.yml'"
+runs_on_for env FAKE_RUNNERS='{"runners":[{"labels":[{"name":"nuc-kachink"},{"name":"nuc"}]}]}' BOOTSTRAP_REVIEW_RUNS_ON=auto
+check "explicit auto picks" "grep -q 'nuc-kachink' '$TMP/r.yml'"
+
+echo "-- skip-changelog"
+reset; rm_caller
+FAKE_LABELS='[{"name":"REVIEWED"},{"name":"skip-changelog"}]' "$BS" o/r --review > "$TMP/out"
+check "label applied when it exists" "grep -q '^pr edit -R o/r https://github.com/o/r/pull/1 --add-label skip-changelog\$' '$GH_LOG'"
+reset; rm_caller
+"$BS" o/r --review > "$TMP/out"
+check "no label call when absent" "! grep -q '^pr edit' '$GH_LOG'"
+
+echo "-- update mode"
 reset
-printf 'uses: nathanielgtran/do-no-work/.github/workflows/claude-review.yml@main\n' > "$FAKE_CALLER"
-"$BS" o/r --review > "$TMP/out" 2> "$TMP/err"
-check "warns without pull-requests: write" "grep -q \"lacks 'pull-requests: write'\" '$TMP/err'"
-check "no caller writes" "! grep -q 'contents/.github/workflows/review.yml' <(grep -- '-X ' '$GH_LOG')"
+check "current default caller prints ok" "'$BS' o/r --review | grep -q 'caller=ok'"
+check "current caller makes no caller writes" "! grep -q -- '-X .*\(contents\|git/refs\)' '$GH_LOG'"
 reset
-printf 'permissions:\n  pull-requests: write\n' > "$FAKE_CALLER"
-"$BS" o/r --review > "$TMP/out" 2> "$TMP/err"
-check "warns without reusable uses" "grep -q 'does not call the reusable' '$TMP/err'"
+printf '%s' "$OLD_CALLER" > "$FAKE_CALLER"
+FAKE_LABELS='[{"name":"REVIEWED"},{"name":"skip-changelog"}]' "$BS" o/r --review > "$TMP/out"
+check "old default caller: harden branch" "grep -q -- '-X POST repos/o/r/git/refs .*ref=refs/heads/NO-TICKET-claude-review-harden' '$GH_LOG'"
+check "writes review.yml with blob sha" "grep -q -- '-X PUT repos/o/r/contents/.github/workflows/review.yml .*branch=NO-TICKET-claude-review-harden.*sha=blob123' '$GH_LOG'"
+check "harden PR title" "grep -qF -- '--head NO-TICKET-claude-review-harden --title [NO-TICKET] ci: harden Claude review caller (pin SHA, fork guard)' '$GH_LOG'"
+check "harden PR body template + fixes" "grep -q '^## Proof' '$GH_PRBODY' && grep -q '^## Risk + rollback' '$GH_PRBODY' && grep -q 'Fork guard' '$GH_PRBODY' && grep -q 'SHA pin' '$GH_PRBODY'"
+check "harden PR gets skip-changelog" "grep -q '^pr edit .*--add-label skip-changelog' '$GH_LOG'"
+decode "$TMP/h.yml"
+check "hardened file has guard and pin" "grep -q 'if: github.event.pull_request' '$TMP/h.yml' && grep -qE '@[0-9a-f]{40}' '$TMP/h.yml'"
+check "only review.yml contents touched" "! grep -- '-X PUT .*contents/' '$GH_LOG' | grep -qv 'contents/.github/workflows/review.yml'"
+check "summary says pr-opened" "grep -q 'caller=pr-opened' '$TMP/out'"
 reset
-"$BS" o/r --review > "$TMP/out" 2> "$TMP/err"
-check "good caller is quiet" "[ ! -s '$TMP/err' ]"
+printf '%s' "$OLD_CALLER" > "$FAKE_BRANCH_CALLER"
+FAKE_PR=https://github.com/o/r/pull/9 FAKE_LABELS='[{"name":"skip-changelog"},{"name":"REVIEWED"}]' "$BS" o/r --review > "$TMP/out"
+check "open caller PR: updates its branch" "grep -q -- '-X PUT repos/o/r/contents/.github/workflows/review.yml .*branch=NO-TICKET-claude-review .*sha=blob123' '$GH_LOG'"
+check "open caller PR: no new branch or PR" "! grep -q -- '-X POST repos/o/r/git/refs' '$GH_LOG' && ! grep -q '^pr create' '$GH_LOG'"
+check "open caller PR: comments" "grep -q '^pr comment https://github.com/o/r/pull/9 ' '$GH_LOG' && grep -q 'caller=pr-updated' '$TMP/out'"
+reset
+printf '%s' "$OLD_CALLER" > "$FAKE_BRANCH_CALLER"
+FAKE_PR_HARDEN=https://github.com/o/r/pull/10 "$BS" o/r --review > "$TMP/out"
+check "open harden PR is refreshed, not duplicated" "grep -q 'branch=NO-TICKET-claude-review-harden' '$GH_LOG' && ! grep -q '^pr create' '$GH_LOG' && ! grep -q -- 'git/refs' '$GH_LOG'"
+reset
+printf '%s' "$OLD_CALLER" > "$FAKE_CALLER"
+FAKE_LABELS='[{"name":"REVIEWED"},{"name":"skip-changelog"}]' "$BS" o/r --review --dry-run > "$TMP/out"
+check "update dry run: no mutating calls" "! grep -q -e '-X ' -e '^pr create' -e '^pr edit' -e '^pr comment' '$GH_LOG'"
+check "update dry run: plans harden PR" "grep -q 'dry  gh pr create .*NO-TICKET-claude-review-harden' '$TMP/out' && grep -q 'dry  gh pr edit .*skip-changelog' '$TMP/out'"
 
 echo "-- secret"
 reset
