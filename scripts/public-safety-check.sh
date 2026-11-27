@@ -32,7 +32,7 @@ derived_patterns() {
   local user email name
   user="${USER:-}"
   if [ -z "${GITHUB_ACTIONS:-}" ] && [ "${#user}" -ge 3 ] && [ "$user" != root ]; then
-    escape_literal "$user"
+    printf '(^|[^a-z0-9])%s([^a-z0-9]|$)\n' "$(escape_literal "$user")"
   fi
   email="$(git config user.email 2>/dev/null || true)"
   name="$(git config user.name 2>/dev/null || true)"
