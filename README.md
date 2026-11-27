@@ -2,6 +2,8 @@
 
 A Claude Code setup built so the agent does the work and you make the decisions. It ships with guardrails that make it safe to let the agent run.
 
+Built by Nathaniel Tran. See more of my work at **[ngtran.dev](https://ngtran.dev)**.
+
 It includes hooks, slash commands, skills, a `CLAUDE.md` template, the CLI scripts I use daily, and shell/git config. There is one installer for macOS/Linux/WSL and one for Windows.
 
 - [The workflow](#the-workflow)
@@ -115,6 +117,16 @@ flowchart LR
 - **Settings** are never touched: merge `hooks`, `permissions` and `statusLine` from [`claude/settings.example.json`](claude/settings.example.json) into `~/.claude/settings.json` yourself.
 - **Non-interactive installs** need `GIT_NAME` and `GIT_EMAIL` set.
 
+### New repo
+
+Apply the fleet defaults (Actions lockdown, squash-only merges, secret scanning, `REVIEWED` label, `protect-main` ruleset) to an existing GitHub repo. It is idempotent; `--dry-run` prints the calls without making them.
+
+```bash
+BOOTSTRAP_CHECKS="test (ubuntu-latest),gitleaks" repo-bootstrap owner/repo --public
+```
+
+`--public` also warns if a workflow uses a self-hosted runner. Without `BOOTSTRAP_CHECKS` the required-checks rule is skipped. `BOOTSTRAP_ACTIONS` overrides the allowed third-party actions.
+
 ## What's in it
 
 | Path | What |
@@ -123,7 +135,7 @@ flowchart LR
 | `claude/commands/` | `/log`, `/prune`, `/test`, `/review-pr`, `/deploy`, `/hc`, `/rollback` (the last three expect `$HOMESERVER=user@host`) |
 | `claude/skills/` | `autobuild` (hands-off feature loop), `tighten` (post-PR simplify + fix), `backlog` (cross-repo TODO + issue rollup), `call` (call recording to notes), `wanderlog` (Wanderlog trip API) |
 | `claude/CLAUDE.md.example` | Global instructions template, copied to `~/CLAUDE.md` if you have none |
-| `bin/` | `pstack-budget-statusline` (5h/7d plan usage in the statusline, picks a model budget tier), `safe-worktree-remove` (refuses dirty, unmerged or in-use worktrees), `transcribe` + `callrec` (local call recording + transcription), `pasteimg`, `chrome-devtools-mcp-gated`, `engraph-*` (engraph knowledge-graph MCP helpers) |
+| `bin/` | `pstack-budget-statusline` (5h/7d plan usage in the statusline, picks a model budget tier), `safe-worktree-remove` (refuses dirty, unmerged or in-use worktrees), `repo-bootstrap` (fleet GitHub defaults: Actions lockdown, squash-only, protect-main ruleset), `ci-wait` (block until a PR's checks finish, exit 1 on any failure), `transcribe` + `callrec` (local call recording + transcription), `pasteimg`, `chrome-devtools-mcp-gated`, `engraph-*` (engraph knowledge-graph MCP helpers) |
 | `home/` | `gitconfig` (identity in `~/.gitconfig.local`), `gitignore_global`, oh-my-posh theme, `bashrc.d/dotfiles.sh` (brew, PATH, prompt, `pass`-backed secrets) |
 | `skills-upstream.txt` | Third-party skills installed from their own repos, not copied here |
 
@@ -145,6 +157,8 @@ None are stored here. Scripts read tokens from environment variables or `pass` (
 ```bash
 ./tests/install_test.sh   # installs into a throwaway HOME, link and copy mode, twice
 ./tests/hooks_test.sh     # feeds commands to the permission hooks and checks each decision
+./tests/bootstrap_test.sh # repo-bootstrap against a fake gh
+./tests/ci_wait_test.sh   # ci-wait against a fake gh
 ```
 
 CI runs both on GitHub-hosted Ubuntu and macOS, plus the skill test suites and gitleaks.

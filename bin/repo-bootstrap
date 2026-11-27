@@ -1,0 +1,144 @@
+#!/bin/bash
+# Apply fleet defaults to an existing GitHub repo. Idempotent; one line per setting.
+#
+# Usage: repo-bootstrap <owner/repo> [--public] [--dry-run]
+#   --public   warn if any workflow uses a self-hosted runner (fork PRs could reach it)
+#   --dry-run  print the mutating calls without making them (reads still run)
+#
+# Env:
+#   BOOTSTRAP_ACTIONS  comma list of allowed action patterns
+#                      (default astral-sh/setup-uv@*,gitleaks/gitleaks-action@*)
+#   BOOTSTRAP_CHECKS   comma list of required status checks; unset skips that rule
+set -euo pipefail
+
+DRY_RUN=0
+PUBLIC=0
+REPO=""
+RULESET_NAME="protect-main"
+ACTIONS="${BOOTSTRAP_ACTIONS:-astral-sh/setup-uv@*,gitleaks/gitleaks-action@*}"
+
+die() { echo "repo-bootstrap: $*" >&2; exit 1; }
+
+apply() {
+  local label="$1" method="$2" endpoint="$3"
+  shift 3
+  if [ "$DRY_RUN" = 1 ]; then
+    printf 'dry  %s %s (%s)\n' "$method" "$endpoint" "$label"
+    return
+  fi
+  gh api -X "$method" "$endpoint" "$@" >/dev/null || die "failed: $label ($method $endpoint)"
+  printf 'ok   %s\n' "$label"
+}
+
+parse_args() {
+  local a
+  for a in "$@"; do
+    case "$a" in
+      --public) PUBLIC=1 ;;
+      --dry-run) DRY_RUN=1 ;;
+      -*) die "unknown flag: $a" ;;
+      *) [ -z "$REPO" ] || die "unexpected argument: $a"; REPO="$a" ;;
+    esac
+  done
+  [[ "$REPO" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || die "usage: repo-bootstrap <owner/repo> [--public] [--dry-run]"
+}
+
+setup_actions() {
+  local r="repos/$REPO/actions/permissions" pat
+  local args=()
+  apply "actions: read-only token, no PR approval" PUT "$r/workflow" \
+    -f default_workflow_permissions=read -F can_approve_pull_request_reviews=false
+  apply "actions: fork PR approval for all external contributors" PUT "$r/fork-pr-contributor-approval" \
+    -f approval_policy=all_external_contributors
+  apply "actions: enabled, selected actions only" PUT "$r" \
+    -F enabled=true -f allowed_actions=selected
+  while IFS= read -r pat; do
+    if [ -n "$pat" ]; then args+=(-f "patterns_allowed[]=$pat"); fi
+  done < <(tr ',' '\n' <<<"$ACTIONS")
+  apply "actions: allowlist ($ACTIONS)" PUT "$r/selected-actions" \
+    -F github_owned_allowed=true -F verified_allowed=false ${args[@]+"${args[@]}"}
+}
+
+setup_repo() {
+  apply "repo: squash-only, auto-delete branches, no wiki/projects, secret scanning" PATCH "repos/$REPO" \
+    -F has_wiki=false -F has_projects=false -F delete_branch_on_merge=true \
+    -F allow_merge_commit=false -F allow_rebase_merge=false -F allow_squash_merge=true \
+    -f 'security_and_analysis[secret_scanning][status]=enabled' \
+    -f 'security_and_analysis[secret_scanning_push_protection][status]=enabled'
+  apply "security: private vulnerability reporting" PUT "repos/$REPO/private-vulnerability-reporting"
+  apply "security: dependabot alerts" PUT "repos/$REPO/vulnerability-alerts"
+  apply "security: dependabot security updates" PUT "repos/$REPO/automated-security-fixes"
+}
+
+setup_label() {
+  local labels
+  labels=$(gh api "repos/$REPO/labels?per_page=100") || die "failed to list labels"
+  if jq -e '.[] | select(.name == "REVIEWED")' <<<"$labels" >/dev/null; then
+    echo "ok   label REVIEWED already exists"
+    return
+  fi
+  apply "label REVIEWED created" POST "repos/$REPO/labels" -f name=REVIEWED -f color=0e8a16
+}
+
+ruleset_body() {
+  local checks="$1"
+  jq -n --arg name "$RULESET_NAME" --arg checks "$checks" '
+    {name: $name, target: "branch", enforcement: "active",
+     conditions: {ref_name: {include: ["~DEFAULT_BRANCH"], exclude: []}},
+     rules: ([{type: "deletion"}, {type: "non_fast_forward"},
+       {type: "pull_request", parameters: {
+         required_approving_review_count: 0, dismiss_stale_reviews_on_push: true,
+         require_code_owner_review: false, require_last_push_approval: false,
+         required_review_thread_resolution: false}}]
+       + (if $checks == "" then [] else
+          [{type: "required_status_checks", parameters: {
+            strict_required_status_checks_policy: false,
+            required_status_checks: ($checks | split(",") | map(select(. != "") | {context: .}))}}]
+          end))}'
+}
+
+setup_ruleset() {
+  local existing id body
+  [ -n "${BOOTSTRAP_CHECKS:-}" ] || echo "skip required_status_checks: BOOTSTRAP_CHECKS not set"
+  body=$(ruleset_body "${BOOTSTRAP_CHECKS:-}")
+  existing=$(gh api "repos/$REPO/rulesets") || die "failed to list rulesets"
+  id=$(jq -r --arg n "$RULESET_NAME" '[.[] | select(.name == $n) | .id][0] // empty' <<<"$existing")
+  if [ -n "$id" ]; then
+    apply "ruleset $RULESET_NAME updated (id $id)" PUT "repos/$REPO/rulesets/$id" --input - <<<"$body"
+  else
+    apply "ruleset $RULESET_NAME created" POST "repos/$REPO/rulesets" --input - <<<"$body"
+  fi
+}
+
+warn_self_hosted() {
+  local list names name content found=0
+  if ! list=$(gh api "repos/$REPO/contents/.github/workflows" 2>&1); then
+    grep -qi 'not found' <<<"$list" || die "failed to list workflows: $list"
+    echo "ok   public: no workflows to check"
+    return
+  fi
+  names=$(jq -r '.[] | select(.name | test("\\.ya?ml$")) | .name' <<<"$list")
+  while IFS= read -r name; do
+    [ -n "$name" ] || continue
+    content=$(gh api -H 'Accept: application/vnd.github.raw' "repos/$REPO/contents/.github/workflows/$name") \
+      || die "failed to read workflow $name"
+    if grep -E 'runs-on:.*self-hosted|^[[:space:]]*-[[:space:]]*self-hosted' <<<"$content" >/dev/null; then
+      echo "WARNING: $name uses a self-hosted runner; fork PRs on a public repo could target it" >&2
+      found=1
+    fi
+  done <<<"$names"
+  [ "$found" = 1 ] || echo "ok   public: no self-hosted runners in workflows"
+}
+
+main() {
+  parse_args "$@"
+  command -v gh >/dev/null || die "gh not found"
+  command -v jq >/dev/null || die "jq not found"
+  setup_actions
+  setup_repo
+  setup_label
+  setup_ruleset
+  if [ "$PUBLIC" = 1 ]; then warn_self_hosted; fi
+}
+
+main "$@"

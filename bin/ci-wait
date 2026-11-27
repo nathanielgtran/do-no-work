@@ -1,0 +1,79 @@
+#!/bin/bash
+# Wait for CI checks on a PR's head commit, print each result, exit 0 only if all passed.
+#
+# Usage: ci-wait <pr-number> [-R owner/repo]
+#
+# Env:
+#   CI_WAIT_TIMEOUT      overall timeout in seconds (default 1200)
+#   CI_WAIT_INTERVAL     poll interval in seconds (default 15)
+#   CI_WAIT_EMPTY_GRACE  seconds to keep retrying while no checks exist yet (default 60)
+# Passing conclusions: success, skipped, neutral.
+set -euo pipefail
+
+TIMEOUT="${CI_WAIT_TIMEOUT:-1200}"
+INTERVAL="${CI_WAIT_INTERVAL:-15}"
+EMPTY_GRACE="${CI_WAIT_EMPTY_GRACE:-60}"
+PR=""
+REPO_ARGS=()
+
+die() { echo "ci-wait: $*" >&2; exit 2; }
+
+parse_args() {
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -R) [ $# -ge 2 ] || die "-R needs owner/repo"; REPO_ARGS=(-R "$2"); shift 2 ;;
+      -*) die "unknown flag: $1" ;;
+      *) [ -z "$PR" ] || die "unexpected argument: $1"; PR="$1"; shift ;;
+    esac
+  done
+  [[ "$PR" =~ ^[0-9]+$ ]] || die "usage: ci-wait <pr-number> [-R owner/repo]"
+}
+
+fetch_checks() {
+  gh pr view "$PR" ${REPO_ARGS[@]+"${REPO_ARGS[@]}"} --json statusCheckRollup \
+    | jq -c '[.statusCheckRollup[]? | {
+        name: (.name // .context),
+        done: ((.status == "COMPLETED") or (.state != null and .state != "PENDING" and .state != "EXPECTED")),
+        result: (((.conclusion // .state // "pending") | ascii_downcase))}]'
+}
+
+report() {
+  jq -r '.[] | "\(.name): \(if .done then .result else "pending" end)"' <<<"$1"
+}
+
+all_passed() {
+  jq -e 'all(.[]; .done and (.result == "success" or .result == "skipped" or .result == "neutral"))' <<<"$1" >/dev/null
+}
+
+wait_loop() {
+  local start now checks total pending
+  start=$(date +%s)
+  while :; do
+    checks=$(fetch_checks) || die "failed to fetch checks for PR $PR"
+    now=$(date +%s)
+    total=$(jq 'length' <<<"$checks")
+    pending=$(jq '[.[] | select(.done | not)] | length' <<<"$checks")
+    if [ "$total" -gt 0 ] && [ "$pending" -eq 0 ]; then break; fi
+    if [ "$total" -eq 0 ] && [ $((now - start)) -ge "$EMPTY_GRACE" ]; then
+      echo "ci-wait: no checks reported after ${EMPTY_GRACE}s" >&2
+      exit 1
+    fi
+    if [ $((now - start)) -ge "$TIMEOUT" ]; then
+      report "$checks"
+      echo "ci-wait: timed out after ${TIMEOUT}s" >&2
+      exit 1
+    fi
+    sleep "$INTERVAL"
+  done
+  report "$checks"
+  all_passed "$checks"
+}
+
+main() {
+  parse_args "$@"
+  command -v gh >/dev/null || die "gh not found"
+  command -v jq >/dev/null || die "jq not found"
+  wait_loop
+}
+
+main "$@"
