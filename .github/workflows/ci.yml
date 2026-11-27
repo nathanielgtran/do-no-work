@@ -56,6 +56,10 @@ jobs:
         run: |
           ./tests/public_safety_test.sh
           ./scripts/public-safety-check.sh
+      - name: Changelog fragments
+        run: |
+          ./scripts/changelog.sh check
+          ./tests/changelog_test.sh
 
   windows:
     runs-on: windows-latest
