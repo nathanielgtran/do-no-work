@@ -37,18 +37,24 @@ function Find-GitBash {
 
 function Install-PowerShellPrompt {
     $theme = Join-Path $HOME '.config\ohmyposh\theme.json'
-    $line = "if (Get-Command oh-my-posh -ErrorAction SilentlyContinue) { oh-my-posh init pwsh --config '$theme' | Invoke-Expression }"
-    if (-not (Test-Path $PROFILE)) { New-Item -ItemType File -Force -Path $PROFILE | Out-Null }
-    if (-not (Select-String -Path $PROFILE -SimpleMatch $line -Quiet)) {
-        Add-Content -Path $PROFILE -Value "`n$line"
-        Write-Host "==> added oh-my-posh to $PROFILE"
+    $quotedTheme = $theme.Replace("'", "''")
+    $line = "if (Get-Command oh-my-posh -ErrorAction SilentlyContinue) { oh-my-posh init pwsh --config '$quotedTheme' | Invoke-Expression }"
+    $profilePath = $PROFILE
+    if (-not $profilePath) { $profilePath = Join-Path $HOME 'Documents\PowerShell\Microsoft.PowerShell_profile.ps1' }
+    if (-not (Test-Path $profilePath)) { New-Item -ItemType File -Force -Path $profilePath | Out-Null }
+    if (-not (Select-String -Path $profilePath -SimpleMatch $line -Quiet)) {
+        Add-Content -Path $profilePath -Value "`n$line"
+        Write-Host "==> added oh-my-posh to $profilePath"
     }
 }
 
 if (-not $NoDeps) { Install-Deps }
 $bash = Find-GitBash
-$unixRepo = (& $bash -lc "cygpath -u '$Repo'").Trim()
-& $bash -lc "cd '$unixRepo' && ./install.sh --copy --no-deps"
+$env:DOTFILES_WIN_REPO = $Repo
+$unixRepo = (& $bash -lc 'cygpath -u "$DOTFILES_WIN_REPO"' | Out-String).Trim()
+if ($LASTEXITCODE -ne 0 -or -not $unixRepo) { throw "cygpath failed for '$Repo' ($LASTEXITCODE)" }
+$env:DOTFILES_UNIX_REPO = $unixRepo
+& $bash -lc 'cd "$DOTFILES_UNIX_REPO" && ./install.sh --copy --no-deps'
 if ($LASTEXITCODE -ne 0) { throw "install.sh failed ($LASTEXITCODE)" }
 Install-PowerShellPrompt
 Write-Host '==> done. Restart your terminal.'

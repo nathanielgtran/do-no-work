@@ -50,6 +50,44 @@ jobs:
         run: ./tests/claude_review_verdict_test.sh
       - name: Research hooks
         run: ./tests/research_hooks_test.sh
+      - name: Public safety
+        env:
+          PUBLIC_SAFETY_DENY_LIST: ${{ secrets.PUBLIC_SAFETY_DENY_LIST }}
+        run: |
+          ./tests/public_safety_test.sh
+          ./scripts/public-safety-check.sh
+
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install into throwaway home
+        shell: pwsh
+        run: |
+          $h = Join-Path $env:RUNNER_TEMP 'winhome'
+          New-Item -ItemType Directory -Force -Path $h | Out-Null
+          "WIN_HOME=$h" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+          $env:HOME = $h
+          $env:USERPROFILE = $h
+          $env:DOTFILES_SKIP_UPSTREAM = '1'
+          $env:GIT_NAME = 'CI User'
+          $env:GIT_EMAIL = 'ci@example.invalid'
+          powershell -ExecutionPolicy Bypass -File .\install.ps1 -NoDeps
+          if ($LASTEXITCODE -ne 0) { throw "install.ps1 exited $LASTEXITCODE" }
+      - name: Assert installed files
+        shell: pwsh
+        run: |
+          foreach ($rel in '.claude\hooks\autonomy-gate.sh', '.local\bin\safe-worktree-remove') {
+            $p = Join-Path $env:WIN_HOME $rel
+            $item = Get-Item -LiteralPath $p -ErrorAction Stop
+            if ($item.PSIsContainer -or $item.LinkType) { throw "$p is not a regular file" }
+            Write-Host "ok $p"
+          }
 
   gitleaks:
     runs-on: ubuntu-latest

@@ -17,7 +17,7 @@ on:
         type: number
         default: 20
       tools-ref:
-        description: "nathanielgtran/do-no-work ref to load the verdict script from. Never the PR's own copy: a PR could rewrite it to always label."
+        description: "nathanielgtran/do-no-work ref to load the verdict script from. Never the PR's own copy: a PR could rewrite it to always label."  # public-safety: allow (public repo name)
         type: string
         default: main
     secrets:
@@ -78,7 +78,7 @@ jobs:
         if: steps.gate.outputs.run == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: nathanielgtran/do-no-work
+          repository: nathanielgtran/do-no-work  # public-safety: allow (public repo name)
           ref: ${{ inputs.tools-ref }}
           path: .claude-review-tools
           persist-credentials: false

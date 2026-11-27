@@ -2,7 +2,7 @@
 
 A Claude Code setup built so the agent does the work and you make the decisions. It ships with guardrails that make it safe to let the agent run.
 
-Built by Nathaniel Tran. See more of my work at **[ngtran.dev](https://ngtran.dev)**.
+Built by Nathaniel Tran. See more of my work at **[ngtran.dev](https://ngtran.dev)**. <!-- public-safety: allow (author byline) -->
 
 It includes hooks, slash commands, skills, a `CLAUDE.md` template, the CLI scripts I use daily, and shell/git config. There is one installer for macOS/Linux/WSL and one for Windows.
 
@@ -98,14 +98,14 @@ flowchart LR
 macOS / Linux / WSL:
 
 ```bash
-git clone https://github.com/nathanielgtran/do-no-work ~/Github/do-no-work
+git clone https://github.com/nathanielgtran/do-no-work ~/Github/do-no-work  # public-safety: allow (public repo URL)
 cd ~/Github/do-no-work && ./install.sh     # symlinks; --copy to copy, --no-deps to skip packages
 ```
 
 Windows (PowerShell):
 
 ```powershell
-git clone https://github.com/nathanielgtran/do-no-work $HOME\Github\do-no-work
+git clone https://github.com/nathanielgtran/do-no-work $HOME\Github\do-no-work  # public-safety: allow (public repo URL)
 cd $HOME\Github\do-no-work; powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```
 
@@ -168,6 +168,22 @@ Enable in a repo: create a `REVIEWED` label, run `gh secret set CLAUDE_CODE_OAUT
 
 None are stored here. Scripts read tokens from environment variables or `pass` (e.g. `pass dev/magic-mcp-key`). A gitleaks pre-commit hook and GitHub push protection both block accidental commits.
 
+### Keeping it public-safe
+
+`scripts/public-safety-check.sh` fails if a tracked file contains personal data. It matches case-insensitively against three sources:
+
+1. Builtin generic patterns: private IP ranges, private keys, absolute home directories.
+2. Values derived from the machine at run time and never committed: `$USER`, `git config user.email` and `user.name`.
+3. A private list, one regex per line with `#` comments, at `~/.config/do-no-work/public-safety-deny` (override with `PUBLIC_SAFETY_DENY`). See `scripts/public-safety-deny.example` for the format.
+
+In CI the private list comes from the optional `PUBLIC_SAFETY_DENY_LIST` repo secret (empty on fork PRs). Set it with:
+
+```bash
+gh secret set PUBLIC_SAFETY_DENY_LIST -R nathanielgtran/do-no-work < ~/.config/do-no-work/public-safety-deny  # public-safety: allow (public repo name)
+```
+
+Output names the file, line and source but never prints a private pattern. A line containing `public-safety: allow` is skipped; give a reason next to it.
+
 ## Test
 
 ```bash
@@ -177,9 +193,12 @@ None are stored here. Scripts read tokens from environment variables or `pass` (
 ./tests/ci_wait_test.sh   # ci-wait against a fake gh
 ./tests/claude_review_verdict_test.sh  # verdict to label logic, with a stubbed gh
 ./tests/research_hooks_test.sh  # stop-gate and protect-lint-config in temp repos
+./tests/public_safety_test.sh   # leak check: builtin, derived and private-list patterns
 ```
 
-CI runs both on GitHub-hosted Ubuntu and macOS, plus the skill test suites and gitleaks.
+CI runs these on GitHub-hosted Ubuntu and macOS, plus the skill test suites and gitleaks.
+`scripts/public-safety-check.sh` also runs in CI and as a pre-commit hook.
+A `windows` job runs `install.ps1 -NoDeps` on `windows-latest` into a throwaway home and checks the hook and bin script landed.
 
 ## License
 
