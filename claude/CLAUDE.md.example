@@ -7,6 +7,7 @@ Assisting <NAME>, <ROLE>. Machines: WSL Ubuntu or macOS; machine details in `~/C
 - Check `~/Github/personal-kb/` (via `mcp__engraph__search "<intent>"` first) BEFORE asking me for account IDs, env URLs, past work, known issues. Verify a hit still exists before acting on it.
 - After editing a memory or personal-kb file, run `engraph-enqueue <path>...`. Never call `mcp__engraph__reindex_file` directly (calls stack and time out on a single-threaded server).
 - Cross-repo work: read `~/Github/REPOS.md` first (stack, test/lint commands, ports, deps). Per-repo tasks live in that repo's `TODO.md`, read on demand.
+- /clear between unrelated tasks; /compact <focus> when long.
 - On entering a repo/worktree, read `.claude/HANDOFF.md` if present; git log/status wins on conflict. `PLAN.md` `## Current State` is repo-level only (3 lines: phase, next, blocked).
 
 ## Hard rules
@@ -35,6 +36,7 @@ Implement in a dedicated worktree, never my primary checkout (I edit it live): `
 ## Agents
 - Plan non-trivial work (>3 files) with Opus, implement with Sonnet. Sub-agents default to sonnet (haiku for simple grep/read). Use them for broad search, PR review, research >50 lines; not for single-file reads or work that depends on the current result.
 - Parallel fan-out agents: targeted tests only, commit + push first.
+- Fan out only independent pieces; subagents are parallel, not smarter, and review is the bottleneck.
 
 ## Autonomy
 Broad: build, test, lint, push branches, open PRs freely. Approving a plan (ExitPlanMode or PLAN.md) pre-satisfies plan-first/per-file confirms within its scope; it does not loosen any hard rule or the merge condition.

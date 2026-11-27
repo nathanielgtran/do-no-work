@@ -1,0 +1,7 @@
+# Copy to .worktreeinclude at the repo root. Same syntax as .gitignore.
+# Claude Code copies matching gitignored files into every worktree it creates.
+# Small files only: it copies, it does not link. For node_modules use the
+# worktree.symlinkDirectories setting instead.
+.env
+.env.local
+config/*.local.*

@@ -64,9 +64,10 @@ install_cli_tools() {
 
 install_claude() {
   local c="$HOME/.claude"
-  mkdir -p "$c/hooks" "$c/commands" "$c/skills"
+  mkdir -p "$c/hooks" "$c/commands" "$c/skills" "$c/agents"
   for f in "$REPO"/claude/hooks/*.sh; do place "$f" "$c/hooks/$(basename "$f")"; done
   for f in "$REPO"/claude/commands/*.md; do place "$f" "$c/commands/$(basename "$f")"; done
+  for f in "$REPO"/claude/agents/*.md; do place "$f" "$c/agents/$(basename "$f")"; done
   for d in "$REPO"/claude/skills/*/; do place "${d%/}" "$c/skills/$(basename "$d")"; done
   [ -f "$c/autonomy-level" ] || echo full > "$c/autonomy-level"
   if [ ! -f "$HOME/CLAUDE.md" ]; then

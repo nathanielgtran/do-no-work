@@ -65,6 +65,13 @@ Say **"go less"** in a prompt to block all push and merge, and **"go full"** to 
 
 > **Warning:** `openspec-autonomy` auto-approves allowlisted commands in any repo containing `openspec/config.yaml`, and a repo you clone can contain that file. Only wire it if you keep the `permissions.deny` block from [`claude/settings.example.json`](claude/settings.example.json). Leave it out if you run Claude in repos you don't trust.
 
+Two more hooks sit outside that Bash flow:
+
+- **stop-gate** (Stop): when files changed, runs the repo's fast check (`$CLAUDE_STOP_GATE_CMD`, then `.claude/stop-gate`, then go/npm/pytest/openspec auto-detect) and blocks the stop with the failure output. It lets the stop through when the same failure repeats under `stop_hook_active`. Repo-defined checks only run in repos owned by someone in `CLAUDE_STOP_GATE_OWNERS` (space-separated GitHub users/orgs), so a cloned repo can't use it to run code.
+- **protect-lint-config** (PreToolUse on Edit/Write/MultiEdit): asks before changes to lint, format and type-check config and baseline files, because agents disable rules to pass. Fix the code, or confirm.
+
+Sandbox, `autoMode.environment` and worktree examples are in [`claude/settings.example.json`](claude/settings.example.json) and [`.worktreeinclude.example`](.worktreeinclude.example). Copy the latter to `.worktreeinclude` to have gitignored files like `.env` copied into new worktrees; for large directories such as `node_modules` set `worktree.symlinkDirectories` in settings instead.
+
 ## autobuild: hands-off feature loop
 
 Use [`claude/skills/autobuild`](claude/skills/autobuild/SKILL.md) when you'd rather the agent decide what to build. It scouts the repo, picks up to three features, and builds them in parallel worktrees. You review and merge one PR at a time.
@@ -133,7 +140,8 @@ BOOTSTRAP_CHECKS="test (ubuntu-latest),gitleaks" repo-bootstrap owner/repo --pub
 
 | Path | What |
 |---|---|
-| `claude/hooks/` | `autonomy-gate` + `autonomy-toggle` (push/merge kill switch), `gate-self-merge` (merge only with REVIEWED + green CI), `openspec-autonomy`, `go-check` (go test/vet/lint on the edited package), `session-context` (loads daily log/todo at start), `compact-reinject`, `claude-notify` (Discord DM on permission prompts) |
+| `claude/hooks/` | `autonomy-gate` + `autonomy-toggle` (push/merge kill switch), `gate-self-merge` (merge only with REVIEWED + green CI), `openspec-autonomy`, `go-check` (go test/vet/lint on the edited package), `stop-gate` (done gate on Stop), `protect-lint-config` (ask before lint/type config edits), `session-context` (loads daily log/todo at start), `compact-reinject`, `claude-notify` (Discord DM on permission prompts) |
+| `claude/agents/` | `reviewer` (read-only review subagent: bugs, security, missing tests, ends with `VERDICT: PASS` or `BLOCK`) |
 | `claude/commands/` | `/log`, `/prune`, `/test`, `/review-pr`, `/deploy`, `/hc`, `/rollback` (the last three expect `$HOMESERVER=user@host`) |
 | `claude/skills/` | `autobuild` (hands-off feature loop), `tighten` (post-PR simplify + fix), `backlog` (cross-repo TODO + issue rollup), `call` (call recording to notes), `wanderlog` (Wanderlog trip API) |
 | `claude/CLAUDE.md.example` | Global instructions template, copied to `~/CLAUDE.md` if you have none |
@@ -168,6 +176,7 @@ None are stored here. Scripts read tokens from environment variables or `pass` (
 ./tests/bootstrap_test.sh # repo-bootstrap against a fake gh
 ./tests/ci_wait_test.sh   # ci-wait against a fake gh
 ./tests/claude_review_verdict_test.sh  # verdict to label logic, with a stubbed gh
+./tests/research_hooks_test.sh  # stop-gate and protect-lint-config in temp repos
 ```
 
 CI runs both on GitHub-hosted Ubuntu and macOS, plus the skill test suites and gitleaks.

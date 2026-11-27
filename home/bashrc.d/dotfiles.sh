@@ -17,6 +17,9 @@ fi
 # Optional: deploy/ssh target used by the /deploy, /hc, /rollback commands
 # export HOMESERVER="user@homeserver.local"
 
+# GitHub owners whose repos stop-gate trusts to define their own checks
+# export CLAUDE_STOP_GATE_OWNERS="<your-github-user> <your-org>"
+
 # Launch Claude Code from ~/Github unless already inside a git repo
 claude() {
   if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1 && [ -d "$HOME/Github" ]; then
