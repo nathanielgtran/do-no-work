@@ -9,7 +9,7 @@
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-MODE=link
+MODE="link"
 DEPS=1
 SEED=""
 while [ $# -gt 0 ]; do
@@ -76,16 +76,15 @@ install_cli_tools() {
 
 # A skill dir linked whole must not stay a symlink when its files are placed one by one.
 detach_linked_parent() {
-  local d
-  d="$(dirname "$1")"
-  while [ "$d" != "$HOME" ] && [ "$d" != / ]; do
-    if [ -L "$d" ]; then
-      mkdir -p "$BACKUP$(dirname "${d#"$HOME"}")"
-      mv "$d" "$BACKUP${d#"$HOME"}"
-      log "backed up $d -> $BACKUP"
-    fi
-    d="$(dirname "$d")"
-  done
+  local skills="$HOME/.claude/skills" rest name d
+  case "$1" in "$skills"/*/*) ;; *) return 0 ;; esac
+  rest="${1#"$skills"/}"
+  name="${rest%%/*}"
+  d="$skills/$name"
+  [ -L "$d" ] || return 0
+  mkdir -p "$BACKUP/.claude/skills"
+  mv "$d" "$BACKUP/.claude/skills/$name"
+  log "backed up $d -> $BACKUP"
 }
 
 place_manifest() {

@@ -85,6 +85,21 @@ run_whole_to_split() {
   check "repo SKILL.md not overwritten" "! grep -q 'personal call' '$REPO/claude/skills/call/SKILL.md'"
 }
 
+run_symlinked_parents() {
+  local real
+  echo "-- symlinked parent dirs are left alone"
+  setup
+  real="$(mktemp -d)"
+  mkdir -p "$real/claude" "$real/localbin" "$home/.local"
+  ln -s "$real/claude" "$home/.claude"
+  ln -s "$real/localbin" "$home/.local/bin"
+  install
+  check "home .claude still a symlink" "[ -L '$home/.claude' ]"
+  check "home .local/bin still a symlink" "[ -L '$home/.local/bin' ]"
+  check "files landed through the links" "[ -e '$real/claude/commands/hc.md' ] && [ -e '$real/localbin/mytool' ]"
+  check "no parent moved to backup" "[ ! -e \"\$(ls -d '$home'/.dotfiles-backup/*/.claude 2>/dev/null | grep -v skills | head -1)/commands\" ]"
+}
+
 run_seed_from_backup() {
   local bk ovs
   echo "-- seed from backup"
@@ -140,6 +155,7 @@ run_mode ""
 run_mode --copy
 run_manifest
 run_whole_to_split
+run_symlinked_parents
 run_seed_from_backup
 run_seed_from_home
 run_doctor
