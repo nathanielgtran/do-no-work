@@ -2,6 +2,7 @@
 # claude-notify: Discord DM when a Claude Code session needs a human.
 # Events: PermissionRequest (tool + command) and Notification idle_prompt.
 # Notify-only: prints nothing on stdout, so no permission decision is made.
+# `claude-notify.sh --message "<text>"` sends one arbitrary DM synchronously (exit 1 if it could not be sent).
 # Always exits 0. Works on bash 3.2 (macOS) and GNU bash (WSL).
 
 ENV_FILE="${CLAUDE_NOTIFY_ENV:-$HOME/.config/claude-notify/env}"
@@ -62,15 +63,23 @@ send() {
   # shellcheck disable=SC1090
   . "$ENV_FILE" 2>/dev/null
   if [ -z "${DISCORD_BOT_TOKEN:-}" ] || [ -z "${DISCORD_OWNER_ID:-}" ]; then
-    log "env file missing DISCORD_BOT_TOKEN/DISCORD_OWNER_ID"; return 0
+    log "env file missing DISCORD_BOT_TOKEN/DISCORD_OWNER_ID"; return 1
   fi
   chan="$(bot_post "https://discord.com/api/v10/users/@me/channels" \
             "{\"recipient_id\": \"$DISCORD_OWNER_ID\"}" 2>/dev/null | json_id)"
-  [ -n "$chan" ] || { log "DM channel open failed"; return 0; }
+  [ -n "$chan" ] || { log "DM channel open failed"; return 1; }
   payload="$(printf '%s' "$msg" | python3 -I -c 'import json,sys;print(json.dumps({"content":sys.stdin.read()}))')"
   sent="$(bot_post "https://discord.com/api/v10/channels/$chan/messages" "$payload" 2>/dev/null | json_id)"
-  if [ -n "$sent" ]; then log "sent"; else log "message send failed"; fi
-  return 0
+  if [ -n "$sent" ]; then log "sent"; return 0; fi
+  log "message send failed"
+  return 1
+}
+
+message_mode() {
+  mkdir -p "$STATE_DIR" 2>/dev/null
+  [ -n "${1:-}" ] || { echo "claude-notify: --message needs text" >&2; return 2; }
+  [ -f "$ENV_FILE" ] || { log "no env file $ENV_FILE"; return 1; }
+  send "$1"
 }
 
 PY='
@@ -151,5 +160,9 @@ print(re.sub(r"[^A-Za-z0-9_-]", "_", sid))
 print(msg)
 '
 
+if [ "${1:-}" = --message ]; then
+  message_mode "${2:-}"
+  exit $?
+fi
 main
 exit 0

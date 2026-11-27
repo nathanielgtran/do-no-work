@@ -71,7 +71,7 @@ To disable any hook, delete its entry from `~/.claude/settings.json` (the instal
 ### `claude-notify`
 **What:** Sends a Discord DM through a bot when Claude Code needs approval (tool and a redacted command) or has gone idle. Secrets-like strings in the message are redacted. It prints nothing on stdout, so it never decides a permission.  **When it runs:** PermissionRequest, and Notification with matcher `idle_prompt`. One DM per session per 120 s.
 **Example:** `[WSL] Approval needed - owner/repo (a1b2c3d4)` followed by `Bash: gh pr merge 12 ...`.
-**Configure / disable:** Env file `~/.config/claude-notify/env` (override with `CLAUDE_NOTIFY_ENV`) must set `DISCORD_BOT_TOKEN` and `DISCORD_OWNER_ID`; without it the hook logs and does nothing. Also `CLAUDE_NOTIFY_STATE` (state and log dir), `CLAUDE_NOTIFY_DEDUPE_SECS`, `CLAUDE_NOTIFY_SYNC` (send in the foreground). Needs `python3` and `curl`. Remove both entries to disable.
+**Configure / disable:** Env file `~/.config/claude-notify/env` (override with `CLAUDE_NOTIFY_ENV`) must set `DISCORD_BOT_TOKEN` and `DISCORD_OWNER_ID`; without it the hook logs and does nothing. Also `CLAUDE_NOTIFY_STATE` (state and log dir), `CLAUDE_NOTIFY_DEDUPE_SECS`, `CLAUDE_NOTIFY_SYNC` (send in the foreground). `claude-notify.sh --message "<text>"` sends one DM synchronously (used by `dnw-apply`; exit 1 if it could not be sent). Needs `python3` and `curl`. Remove both entries to disable.
 **Source:** [`claude/hooks/claude-notify.sh`](../claude/hooks/claude-notify.sh)
 
 ### `session-context`
@@ -246,6 +246,12 @@ Installed to `~/.local/bin/`. Most are bash; `engraph-mcp-proxy` is Python.
 **Example:** `dnw-doctor` prints `ok installed 43 files match the repo and overlay` or `warn settings hook missing under PreToolUse: ...` with its fix. `--json` for machines. Exit 1 on any `fail`.
 **Configure / disable:** `--repo DIR` to check another checkout. It never edits settings.
 **Source:** [`bin/dnw-doctor`](../bin/dnw-doctor), mapping shared with `install.sh` via [`scripts/install-manifest.sh`](../scripts/install-manifest.sh)
+
+### `dnw-apply`
+**What:** Installs merged main onto this machine without you running anything. Refuses (exit 2) unless the checkout is clean, on the default branch and fast-forwards to `origin/<default>`; then seeds the overlay once from the newest `~/.dotfiles-backup/*` (only if no overlay exists), runs `install.sh --no-deps` (`--copy` if `~/.claude/hooks/autonomy-gate.sh` is a regular file), runs `dnw-doctor`, and records HEAD in `${XDG_STATE_HOME:-~/.local/state}/do-no-work/applied`.  **When it runs:** Claude runs it after do-no-work merges to main; you can too.
+**Example:** `dnw-apply` ends with `applied 1a2b3c4..5d6e7f8, 3 files changed, overlay seeded no, guard change no, doctor 0 fail / 1 warn`. If `autonomy-gate.sh`, `autonomy-toggle.sh`, `gate-self-merge.sh`, `openspec-autonomy.sh` or `settings.example.json` changed since the last applied commit, it also appends `<ISO time> <old>..<new> <files>` to `audit.log` and DMs you `do-no-work applied <old>..<new>: guard hooks changed: <files>. Audit: <path>`. A failed DM only warns. The first run has no recorded commit, so it never alerts. Exit is doctor's code (0 ok, 1 fails).
+**Configure / disable:** `--repo DIR` (default: the checkout the script resolves to), `--dry-run` (checks and plan only; fetches but does not fast-forward or write). `DOTFILES_SKIP_UPSTREAM` defaults to 1 here. Needs the `claude-notify` env file for DMs. Test: `tests/apply_test.sh`.
+**Source:** [`bin/dnw-apply`](../bin/dnw-apply)
 
 ### `ci-wait`
 **What:** Polls a PR's checks until all finish; prints each result; exits 0 only if all passed (success, skipped, neutral).  **When it runs:** You or an agent run it after a push.

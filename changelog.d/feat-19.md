@@ -1,0 +1,1 @@
+`dnw-apply` installs merged main (fast-forward only, clean tree, default branch), runs `dnw-doctor`, and audits and DMs the owner when guard hooks or deny rules change; `claude-notify.sh --message` sends one arbitrary DM
