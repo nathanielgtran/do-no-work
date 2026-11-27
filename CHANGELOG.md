@@ -15,3 +15,6 @@
 - feat-4: repo-bootstrap applies fleet GitHub defaults (Actions lockdown, squash-only, secret scanning, REVIEWED label, protect-main ruleset) idempotently, with --public self-hosted runner warning and --dry-run
 - feat-5: ci-wait blocks until a PR's checks finish, retries through the no-checks-yet window, exits 0 only if all passed
 - fix-2: autonomy-gate tamper guard checks write targets (redirect target, mutating-command operands, sed -i files, cd into the dir), not any mention of the path
+- feat-6: public-safety leak check (`scripts/public-safety-check.sh`) with builtin, machine-derived and private-list patterns, pre-commit hook, CI step and tests
+- feat-7: Windows CI job running `install.ps1 -NoDeps` on `windows-latest` into a throwaway home
+- fix-3: install.ps1 passes repo paths to Git Bash via env vars (apostrophe-safe), checks the cygpath exit code, escapes `'` in the `$PROFILE` line

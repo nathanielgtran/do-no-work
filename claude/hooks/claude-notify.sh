@@ -84,7 +84,7 @@ sid = str(d.get("session_id", "unknown"))
 cwd = d.get("cwd", "") or ""
 
 SECRET = [
-    r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*",
+    r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*",  # public-safety: allow (regex literal, not a key)
     r"(?i)(authorization:\s*)(bearer|bot|basic)?\s*\S+",
     r"(?i)\bbearer\s+[A-Za-z0-9._~+/=-]{8,}",
     r"://[^/\s:@]+:[^/\s@]+@",

@@ -35,7 +35,7 @@ expect openspec-autonomy.sh none  'python3 -c "import os"'
 expect gate-self-merge.sh   ask   'gh pr merge 5 && gh pr merge 6'
 expect gate-self-merge.sh   ask   'cd ../other && gh pr merge 5 -R a/b'
 expect autonomy-gate.sh deny 'echo less > ~/.claude/autonomy-level'
-expect autonomy-gate.sh deny 'printf x >> /home/USER/.claude/autonomy-level'
+expect autonomy-gate.sh deny 'printf x >> /home/USER/.claude/autonomy-level' # public-safety: allow (placeholder path)
 expect autonomy-gate.sh deny 'echo x &> ~/.claude/autonomy-level'
 expect autonomy-gate.sh deny 'echo x 2>> ~/.claude/hooks/x.sh'
 expect autonomy-gate.sh deny 'cp x ~/.claude/hooks/autonomy-gate.sh'

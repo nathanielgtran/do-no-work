@@ -3,3 +3,10 @@ repos:
     rev: v8.21.2
     hooks:
       - id: gitleaks
+  - repo: local
+    hooks:
+      - id: public-safety
+        name: public-safety
+        entry: scripts/public-safety-check.sh
+        language: script
+        pass_filenames: true

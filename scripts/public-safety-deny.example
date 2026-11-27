@@ -1,0 +1,5 @@
+# One case-insensitive ERE per line; # starts a comment.
+# Copy to ~/.config/do-no-work/public-safety-deny and replace with your own values.
+example-client-name
+my-private-repo
+jane\.example@example\.invalid

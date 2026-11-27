@@ -6,7 +6,7 @@
 # Set ENGRAPH_SYNC_CMD to a command that copies the vault to the index host when the
 # MCP server runs on another machine.
 set -uo pipefail
-export PATH="/home/linuxbrew/.linuxbrew/bin:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin"
+export PATH="/home/linuxbrew/.linuxbrew/bin:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin"  # public-safety: allow (Homebrew prefix)
 
 STATE="${ENGRAPH_QUEUE_DIR:-$HOME/.local/state/engraph}"
 QUEUE="$STATE/reindex.queue"

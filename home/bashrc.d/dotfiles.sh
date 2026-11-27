@@ -2,7 +2,7 @@
 # Sourced from ~/.bashrc (Linux/WSL) or ~/.bash_profile + ~/.zshrc (macOS) by install.sh.
 
 # Homebrew (macOS arm64/intel, Linuxbrew)
-for b in /opt/homebrew/bin/brew /usr/local/bin/brew /home/linuxbrew/.linuxbrew/bin/brew; do
+for b in /opt/homebrew/bin/brew /usr/local/bin/brew /home/linuxbrew/.linuxbrew/bin/brew; do  # public-safety: allow (Homebrew prefix)
   [ -x "$b" ] && { eval "$("$b" shellenv)"; break; }
 done
 [ -d /usr/local/go/bin ] && export PATH="$PATH:/usr/local/go/bin"
