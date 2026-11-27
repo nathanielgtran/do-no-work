@@ -235,9 +235,15 @@ Installed to `~/.local/bin/`. Most are bash; `engraph-mcp-proxy` is Python.
 **Configure / disable:** Same env as `repo-bootstrap --review`; re-running it over repos with an existing caller opens or refreshes hardening PRs. To disable the review on a repo, delete its `.github/workflows/review.yml`.
 **Source:** [`bin/review-rollout`](../bin/review-rollout)
 
+### Personal overlay
+**What:** Private versions of repo files that stay on your machine. Files under the overlay root mirror repo paths (`claude/commands/hc.md`, `claude/skills/call/SKILL.md`, `bin/mytool`, `home/bashrc.d/local.sh`) and replace the repo file at install time; overlay-only files under `claude/hooks|commands|agents|skills`, `bin` and `home/bashrc.d` are installed too. A skill the overlay touches is installed per file (overlay files plus the repo's other files); untouched skills stay whole-dir links. `home/bashrc.d/local.sh` lands at `~/.config/dotfiles/local.sh`, which `dotfiles.sh` sources.  **When it runs:** On every `install.sh` and `dnw-doctor` run; the overlay is read through `scripts/install-manifest.sh`, whose third column `origin` is `repo` or `overlay`.
+**Example:** `./install.sh --seed-overlay-from ~/.dotfiles-backup/20261127101500` copies the backed-up files that differ from the repo into the overlay and exits (no install). `--seed-overlay` does the same from `$HOME`. Existing overlay files are never overwritten; backup files with no repo path are skipped.
+**Configure / disable:** `DOTFILES_OVERLAY` sets the root (default `~/.config/do-no-work/overlay`). Delete an overlay file and rerun the installer to go back to the repo version. `dnw-doctor` prints `ok overlay N files (...)` and warns about overlay files it cannot place. Test: `tests/overlay_test.sh`.
+**Source:** [`scripts/install-manifest.sh`](../scripts/install-manifest.sh), [`install.sh`](../install.sh)
+
 ### `dnw-doctor`
 **What:** Read-only drift check of the live install against the repo: missing or stale installed files, hooks from `settings.example.json` not wired into `~/.claude/settings.json`, missing `statusLine` / deny rules, git identity, shell rc source line, and tools on PATH. Each problem prints a `fix:` line with the exact command.  **When it runs:** By hand after pulling.
-**Example:** `dnw-doctor` prints `ok installed 43 files match the repo` or `warn settings hook missing under PreToolUse: ...` with its fix. `--json` for machines. Exit 1 on any `fail`.
+**Example:** `dnw-doctor` prints `ok installed 43 files match the repo and overlay` or `warn settings hook missing under PreToolUse: ...` with its fix. `--json` for machines. Exit 1 on any `fail`.
 **Configure / disable:** `--repo DIR` to check another checkout. It never edits settings.
 **Source:** [`bin/dnw-doctor`](../bin/dnw-doctor), mapping shared with `install.sh` via [`scripts/install-manifest.sh`](../scripts/install-manifest.sh)
 
@@ -347,7 +353,7 @@ Helpers for the engraph knowledge-graph MCP server over a vault of hardlinked ma
 ### `install.sh`
 **What:** Installs on macOS, Linux and WSL. Places `home/` config, `bin/` scripts and `claude/` hooks, commands, agents and skills (symlinks by default), creates `~/.claude/autonomy-level` as `full` if missing, copies `CLAUDE.md.example` to `~/CLAUDE.md` if you have none, installs packages, then upstream skills. It never edits `settings.json`. Anything that differs is moved to `~/.dotfiles-backup/<timestamp>/` first, and reruns leave identical files alone.  **When it runs:** By hand, once and after pulls.
 **Example:** `./install.sh --copy --no-deps`.
-**Configure / disable:** `--copy`, `--no-deps`. Env: `GIT_NAME` and `GIT_EMAIL` for non-interactive installs, `DOTFILES_SKIP_UPSTREAM=1`. Test: `tests/install_test.sh`.
+**Configure / disable:** `--copy`, `--no-deps`, `--seed-overlay`, `--seed-overlay-from DIR` (see [Personal overlay](#personal-overlay)). Env: `GIT_NAME` and `GIT_EMAIL` for non-interactive installs, `DOTFILES_SKIP_UPSTREAM=1`. Test: `tests/install_test.sh`.
 **Source:** [`install.sh`](../install.sh)
 
 ### `install.ps1`

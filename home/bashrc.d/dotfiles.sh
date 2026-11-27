@@ -43,3 +43,6 @@ if command -v pass >/dev/null && gpg-connect-agent 'keyinfo --list' /bye 2>/dev/
   export SUPABASE_ACCESS_TOKEN=$(pass dev/supabase-mcp-token 2>/dev/null)
   export MAGIC_API_KEY=$(pass dev/magic-mcp-key 2>/dev/null)
 fi
+
+# Private additions (from the overlay: home/bashrc.d/local.sh)
+[ -f "$HOME/.config/dotfiles/local.sh" ] && . "$HOME/.config/dotfiles/local.sh"

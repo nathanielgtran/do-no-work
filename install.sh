@@ -1,20 +1,32 @@
 #!/bin/bash
 # Install dotfiles + Claude Code setup on macOS, Linux or WSL.
-# Usage: ./install.sh [--copy] [--no-deps]
-#   --copy     copy files instead of symlinking (default: symlink)
-#   --no-deps  skip package installs
+# Usage: ./install.sh [--copy] [--no-deps] [--seed-overlay | --seed-overlay-from DIR]
+#   --copy                     copy files instead of symlinking (default: symlink)
+#   --no-deps                  skip package installs
+#   --seed-overlay             copy installed files that differ from the repo into the overlay, then exit
+#   --seed-overlay-from DIR    same, reading from a backup dir such as ~/.dotfiles-backup/<timestamp>
+# Overlay root: $DOTFILES_OVERLAY, default ~/.config/do-no-work/overlay (mirrors repo paths; wins over the repo).
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MODE=link
 DEPS=1
-for a in "$@"; do
-  case "$a" in
+SEED=""
+while [ $# -gt 0 ]; do
+  case "$1" in
     --copy) MODE=copy ;;
     --no-deps) DEPS=0 ;;
-    *) echo "unknown flag: $a" >&2; exit 2 ;;
+    --seed-overlay) SEED="$HOME" ;;
+    --seed-overlay-from)
+      [ $# -ge 2 ] || { echo "--seed-overlay-from needs a directory" >&2; exit 2; }
+      [ -d "$2" ] || { echo "not a directory: $2" >&2; exit 2; }
+      SEED="$(cd "$2" && pwd)"; shift ;;
+    *) echo "unknown flag: $1" >&2; exit 2 ;;
   esac
+  shift
 done
+OVERLAY="${DOTFILES_OVERLAY:-$HOME/.config/do-no-work/overlay}"
+export DOTFILES_OVERLAY="$OVERLAY"
 
 log() { printf '==> %s\n' "$*"; }
 
@@ -62,9 +74,51 @@ install_cli_tools() {
   fi
 }
 
+# A skill dir linked whole must not stay a symlink when its files are placed one by one.
+detach_linked_parent() {
+  local d
+  d="$(dirname "$1")"
+  while [ "$d" != "$HOME" ] && [ "$d" != / ]; do
+    if [ -L "$d" ]; then
+      mkdir -p "$BACKUP$(dirname "${d#"$HOME"}")"
+      mv "$d" "$BACKUP${d#"$HOME"}"
+      log "backed up $d -> $BACKUP"
+    fi
+    d="$(dirname "$d")"
+  done
+}
+
 place_manifest() {
-  local src dst
-  while IFS=$'\t' read -r src dst; do place "$src" "$dst"; done < <("$REPO/scripts/install-manifest.sh" "$REPO")
+  local src dst origin n=0
+  while IFS=$'\t' read -r src dst origin; do
+    detach_linked_parent "$dst"
+    place "$src" "$dst"
+    [ "$origin" = overlay ] && n=$((n + 1))
+  done < <("$REPO/scripts/install-manifest.sh" "$REPO")
+  [ "$n" -eq 0 ] || log "$n files from overlay $OVERLAY"
+  return 0
+}
+
+seed_one() {
+  local src="$1" inst="$2" rel="${1#"$REPO"/}"
+  [ -f "$inst" ] || return 0
+  cmp -s "$src" "$inst" && return 0
+  if [ -e "$OVERLAY/$rel" ]; then log "kept existing overlay/$rel"; return 0; fi
+  mkdir -p "$(dirname "$OVERLAY/$rel")"
+  cp "$inst" "$OVERLAY/$rel"
+  log "seeded overlay/$rel"
+}
+
+seed_overlay() {
+  local root="$1" src dst origin f
+  while IFS=$'\t' read -r src dst origin; do
+    if [ -d "$src" ]; then
+      while IFS= read -r f; do seed_one "$src/$f" "$root${dst#"$HOME"}/$f"; done \
+        < <(cd "$src" && find . -type f -not -path '*/__pycache__/*' | sed 's|^\./||')
+    else
+      seed_one "$src" "$root${dst#"$HOME"}"
+    fi
+  done < <(DOTFILES_OVERLAY=/nonexistent/dnw-no-overlay "$REPO/scripts/install-manifest.sh" "$REPO")
 }
 
 install_claude() {
@@ -108,6 +162,7 @@ install_upstream_skills() {
   done
 }
 
+if [ -n "$SEED" ]; then seed_overlay "$SEED"; exit 0; fi
 if [ "$DEPS" = 1 ]; then install_deps; install_cli_tools; fi
 chmod +x "$REPO"/bin/* "$REPO"/claude/hooks/*.sh
 place_manifest
