@@ -41,8 +41,14 @@ check_gate "different failure under stop_hook_active blocks" block "$tmp/dirty" 
 
 mkdir -p "$tmp/dirty/.claude"
 echo "echo filecmd; false" > "$tmp/dirty/.claude/stop-gate"
-got="$(gate "$tmp/dirty" false | jq -r '.reason // empty')"
-case "$got" in *filecmd*) pass ".claude/stop-gate file used" ;; *) bad ".claude/stop-gate file: $got" ;; esac
+got="$(gate "$tmp/dirty" false | jq -r '.decision // empty')"
+[ -z "$got" ] && pass "untrusted repo: .claude/stop-gate not run" || bad "untrusted repo ran repo command: $got"
+git -C "$tmp/dirty" remote add origin https://github.com/someone-else/repo.git
+got="$(CLAUDE_STOP_GATE_OWNERS="me" gate "$tmp/dirty" false | jq -r '.decision // empty')"
+[ -z "$got" ] && pass "other owner: .claude/stop-gate not run" || bad "other owner ran repo command: $got"
+git -C "$tmp/dirty" remote set-url origin git@github.com:me/repo.git
+got="$(CLAUDE_STOP_GATE_OWNERS="org me" gate "$tmp/dirty" false | jq -r '.reason // empty')"
+case "$got" in *filecmd*) pass "trusted owner: .claude/stop-gate used" ;; *) bad ".claude/stop-gate file: $got" ;; esac
 
 lint() {
   jq -n --arg f "$1" --arg o "${2:-}" --arg n "${3:-}" '{tool_input:{file_path:$f,old_string:$o,new_string:$n}}' |

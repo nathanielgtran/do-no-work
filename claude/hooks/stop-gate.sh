@@ -1,6 +1,8 @@
 #!/bin/bash
 # Stop hook: block the stop while the repo's fast check fails.
 # Check, first match wins: $CLAUDE_STOP_GATE_CMD, .claude/stop-gate (one line), auto-detect.
+# Repo-defined checks (.claude/stop-gate, auto-detect) run only when origin is owned by a
+# GitHub user/org in CLAUDE_STOP_GATE_OWNERS (space-separated), so a cloned repo can't run code.
 # Env: CLAUDE_STOP_GATE_TIMEOUT (seconds, default 120).
 # Allows the stop when not in git, the tree is clean, or the same failure repeats under stop_hook_active.
 set -uo pipefail
@@ -33,8 +35,18 @@ detect_cmd() {
   printf '%s' "$out"
 }
 
+trusted_repo() {
+  local url owner
+  url=$(git remote get-url origin 2>/dev/null) || return 1
+  for owner in ${CLAUDE_STOP_GATE_OWNERS:-}; do
+    case "$url" in *github.com[:/]"$owner"/*) return 0 ;; esac
+  done
+  return 1
+}
+
 select_cmd() {
   if [ -n "${CLAUDE_STOP_GATE_CMD:-}" ]; then printf '%s' "$CLAUDE_STOP_GATE_CMD"; return; fi
+  trusted_repo || return 0
   if [ -s .claude/stop-gate ]; then head -n 1 .claude/stop-gate; return; fi
   detect_cmd
 }

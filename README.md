@@ -67,7 +67,7 @@ Say **"go less"** in a prompt to block all push and merge, and **"go full"** to 
 
 Two more hooks sit outside that Bash flow:
 
-- **stop-gate** (Stop): when files changed, runs the repo's fast check (`$CLAUDE_STOP_GATE_CMD`, then `.claude/stop-gate`, then go/npm/pytest/openspec auto-detect) and blocks the stop with the failure output. It lets the stop through when the same failure repeats under `stop_hook_active`.
+- **stop-gate** (Stop): when files changed, runs the repo's fast check (`$CLAUDE_STOP_GATE_CMD`, then `.claude/stop-gate`, then go/npm/pytest/openspec auto-detect) and blocks the stop with the failure output. It lets the stop through when the same failure repeats under `stop_hook_active`. Repo-defined checks only run in repos owned by someone in `CLAUDE_STOP_GATE_OWNERS` (space-separated GitHub users/orgs), so a cloned repo can't use it to run code.
 - **protect-lint-config** (PreToolUse on Edit/Write/MultiEdit): asks before changes to lint, format and type-check config and baseline files, because agents disable rules to pass. Fix the code, or confirm.
 
 Sandbox, `autoMode.environment` and worktree examples are in [`claude/settings.example.json`](claude/settings.example.json) and [`.worktreeinclude.example`](.worktreeinclude.example). Copy the latter to `.worktreeinclude` to have gitignored files like `.env` copied into new worktrees; for large directories such as `node_modules` set `worktree.symlinkDirectories` in settings instead.
