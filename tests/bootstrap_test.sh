@@ -29,7 +29,7 @@ reset() { : > "$GH_LOG"; : > "$GH_BODY"; unset FAKE_RULESETS BOOTSTRAP_CHECKS BO
 
 echo "-- dry run"
 reset
-BOOTSTRAP_CHECKS=test "$BS" o/r --dry-run > "$TMP/out"
+BOOTSTRAP_CHECKS="test" "$BS" o/r --dry-run > "$TMP/out"
 check "no mutating calls" "! grep -q -- '-X ' '$GH_LOG'"
 check "prints planned calls" "grep -q 'dry  PATCH repos/o/r' '$TMP/out'"
 

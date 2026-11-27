@@ -2,6 +2,8 @@
 
 A Claude Code setup built so the agent does the work and you make the decisions. It ships with guardrails that make it safe to let the agent run.
 
+Built by Nathaniel Tran. See more of my work at **[ngtran.dev](https://ngtran.dev)**.
+
 It includes hooks, slash commands, skills, a `CLAUDE.md` template, the CLI scripts I use daily, and shell/git config. There is one installer for macOS/Linux/WSL and one for Windows.
 
 - [The workflow](#the-workflow)
