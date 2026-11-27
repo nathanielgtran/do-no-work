@@ -9,6 +9,9 @@ on:
 
 jobs:
   claude-review:
+    permissions:
+      contents: read
+      pull-requests: write
     uses: nathanielgtran/do-no-work/.github/workflows/claude-review.yml@main
     # Public repos: leave runs-on at its default (ubuntu-latest), never self-hosted.
     # Private fleet repos may add:
