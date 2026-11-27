@@ -96,7 +96,7 @@ For each PR, in merge order (smallest blast radius first):
    - output that looks wrong. Example: a snippet cut mid-word in the agent's own example is a real bug, so fix it.
 
    Fix small issues yourself in that worktree, then commit and push.
-2. CI: wait about 25 s after a push before `gh pr checks <N> -R <repo> --watch --interval 15`.
+2. CI: to track every PR across repos at once, run `fleet watch --head '<branch-glob>'` and take merge candidates from `fleet ready` (needs a repo list: `--repos` or `fleet.txt`). Per PR, wait about 25 s after a push before `gh pr checks <N> -R <repo> --watch --interval 15`.
    Checks show "no checks reported" right after a push. Red means fix, never merge.
 3. Label and merge in **separate calls**, one literal PR number each:
    `gh pr edit <N> -R <repo> --add-label REVIEWED`, then

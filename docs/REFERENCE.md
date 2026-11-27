@@ -247,6 +247,12 @@ Installed to `~/.local/bin/`. Most are bash; `engraph-mcp-proxy` is Python.
 **Configure / disable:** `CI_WAIT_TIMEOUT` (1200 s), `CI_WAIT_INTERVAL` (15 s), `CI_WAIT_EMPTY_GRACE` (60 s of waiting for checks to appear). Test: `tests/ci_wait_test.sh`.
 **Source:** [`bin/ci-wait`](../bin/ci-wait)
 
+### `fleet`
+**What:** Lists open PRs across many repos (checks pass/fail/pending, REVIEWED, merge state, ready?). `watch` polls until no check is pending, then prints the table and the first `##[error]` line of each failing check. `ready` prints only ready PRs as `owner/repo#N`.  **When it runs:** You or an agent run it after a fan-out. There is no merge subcommand; merge one PR per `gh` call.
+**Example:** `fleet watch --head 'NO-TICKET-*'` then `fleet ready`. Filters: `--author`, `--label`, `--head <glob>`; `--json` on prs/watch. Watch exits 0 all ready, 1 not all ready, 2 timeout.
+**Configure / disable:** `--repos owner/a,owner/b`, else `FLEET_FILE` (default `~/.config/do-no-work/fleet.txt`, one `owner/repo` per line, `#` comments; format in `examples/fleet.txt`). `--timeout` (1500 s), `--interval` (30 s). Test: `tests/fleet_test.sh`.
+**Source:** [`bin/fleet`](../bin/fleet)
+
 ### `callrec`
 **What:** Starts and stops an OBS recording from WSL over obs-websocket (mic and desktop audio), then runs `transcribe` on the file.  **When it runs:** `callrec start`, `callrec stop [--no-transcribe]`, `callrec status`.
 **Example:** `callrec start` before a call, `callrec stop` after; the transcript lands next to the recording.

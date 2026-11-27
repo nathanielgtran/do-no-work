@@ -30,6 +30,8 @@ The rules behind it live in [`claude/CLAUDE.md.example`](claude/CLAUDE.md.exampl
 - **Comments default to none.** Rename, extract or type the code instead of explaining it.
 - **Proof, not claims.** PR bodies carry pasted test output or screenshots, never "tested locally".
 
+After a fan-out, track the PRs across repos: `fleet watch --head 'NO-TICKET-*'`, then merge each line of `fleet ready` with one `gh pr merge` per PR so the merge gate checks each. See [`examples/fleet.txt`](examples/fleet.txt) for the repo list format.
+
 ### PR format
 
 PR bodies follow the fleet template, [`PULL_REQUEST_TEMPLATE.md`](https://github.com/nathanielgtran/.github/blob/main/PULL_REQUEST_TEMPLATE.md): `## What`, `## Why`, `## Proof`, `## Risk + rollback`, `## Checklist`. Proof is pasted test or run output, never "tested locally". The [`CLAUDE.md` template](claude/CLAUDE.md.example) enforces it for the agent, and the `pr-template` check in the fleet repos enforces it in CI.
@@ -129,7 +131,7 @@ Re-run to update: if the caller already exists on the default branch (or a `NO-T
 | `claude/commands/` | `/log`, `/prune`, `/test`, `/review-pr`, `/deploy`, `/hc`, `/rollback` (the last three expect `$HOMESERVER=user@host`) |
 | `claude/skills/` | `autobuild` (hands-off feature loop), `tighten` (post-PR simplify + fix), `backlog` (cross-repo TODO + issue rollup), `call` (call recording to notes), `wanderlog` (Wanderlog trip API) |
 | `claude/CLAUDE.md.example` | Global instructions template, copied to `~/CLAUDE.md` if you have none |
-| `bin/` | `pstack-budget-statusline` (5h/7d plan usage in the statusline, picks a model budget tier), `safe-worktree-remove` (refuses dirty, unmerged or in-use worktrees), `repo-bootstrap` (fleet GitHub defaults: Actions lockdown, squash-only, protect-main ruleset), `review-rollout` (enable the CI Claude review on repos: allowlist, caller PR, label, secret), `ci-wait` (block until a PR's checks finish, exit 1 on any failure), `dnw-doctor` (read-only drift check of the live install: missing or stale files, unwired settings.json hooks, git identity, shell rc, tools), `transcribe` + `callrec` (local call recording + transcription), `pasteimg`, `chrome-devtools-mcp-gated`, `engraph-*` (engraph knowledge-graph MCP helpers) |
+| `bin/` | `pstack-budget-statusline` (5h/7d plan usage in the statusline, picks a model budget tier), `safe-worktree-remove` (refuses dirty, unmerged or in-use worktrees), `repo-bootstrap` (fleet GitHub defaults: Actions lockdown, squash-only, protect-main ruleset), `review-rollout` (enable the CI Claude review on repos: allowlist, caller PR, label, secret), `ci-wait` (block until a PR's checks finish, exit 1 on any failure), `fleet` (`prs`/`watch`/`ready`: open PRs across many repos with checks, REVIEWED and merge state; repo list from `--repos` or `~/.config/do-no-work/fleet.txt`), `dnw-doctor` (read-only drift check of the live install: missing or stale files, unwired settings.json hooks, git identity, shell rc, tools), `transcribe` + `callrec` (local call recording + transcription), `pasteimg`, `chrome-devtools-mcp-gated`, `engraph-*` (engraph knowledge-graph MCP helpers) |
 | `home/` | `gitconfig` (identity in `~/.gitconfig.local`), `gitignore_global`, oh-my-posh theme, `bashrc.d/dotfiles.sh` (brew, PATH, prompt, `pass`-backed secrets) |
 | `skills-upstream.txt` | Third-party skills installed from their own repos, not copied here, plus a commented list of recommended plugins |
 
