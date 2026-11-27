@@ -17,4 +17,4 @@
 - fix-2: autonomy-gate tamper guard checks write targets (redirect target, mutating-command operands, sed -i files, cd into the dir), not any mention of the path
 - feat-6: public-safety leak check (`scripts/public-safety-check.sh`) with builtin, machine-derived and private-list patterns, pre-commit hook, CI step and tests
 - feat-7: Windows CI job running `install.ps1 -NoDeps` on `windows-latest` into a throwaway home
-- fix-3: install.ps1 passes repo paths to Git Bash via env vars (apostrophe-safe), checks the cygpath exit code, escapes `'` in the `$PROFILE` line
+- fix-3: install.ps1 passes repo paths to Git Bash via env vars (apostrophe-safe), checks the cygpath exit code, escapes `'` in the `$PROFILE` line, falls back to `$HOME\Documents` when `$PROFILE` is empty

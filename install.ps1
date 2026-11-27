@@ -39,10 +39,12 @@ function Install-PowerShellPrompt {
     $theme = Join-Path $HOME '.config\ohmyposh\theme.json'
     $quotedTheme = $theme.Replace("'", "''")
     $line = "if (Get-Command oh-my-posh -ErrorAction SilentlyContinue) { oh-my-posh init pwsh --config '$quotedTheme' | Invoke-Expression }"
-    if (-not (Test-Path $PROFILE)) { New-Item -ItemType File -Force -Path $PROFILE | Out-Null }
-    if (-not (Select-String -Path $PROFILE -SimpleMatch $line -Quiet)) {
-        Add-Content -Path $PROFILE -Value "`n$line"
-        Write-Host "==> added oh-my-posh to $PROFILE"
+    $profilePath = $PROFILE
+    if (-not $profilePath) { $profilePath = Join-Path $HOME 'Documents\PowerShell\Microsoft.PowerShell_profile.ps1' }
+    if (-not (Test-Path $profilePath)) { New-Item -ItemType File -Force -Path $profilePath | Out-Null }
+    if (-not (Select-String -Path $profilePath -SimpleMatch $line -Quiet)) {
+        Add-Content -Path $profilePath -Value "`n$line"
+        Write-Host "==> added oh-my-posh to $profilePath"
     }
 }
 
