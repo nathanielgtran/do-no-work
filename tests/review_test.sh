@@ -160,7 +160,7 @@ check "explicit auto picks" "grep -q 'nuc-kachink' '$TMP/r.yml'"
 echo "-- skip-changelog"
 reset; rm_caller
 FAKE_LABELS='[{"name":"REVIEWED"},{"name":"skip-changelog"}]' "$BS" o/r --review > "$TMP/out"
-check "label applied when it exists" "grep -q '^pr edit -R o/r https://github.com/o/r/pull/1 --add-label skip-changelog\$' '$GH_LOG'"
+check "label set in the create call when it exists" "grep -q '^pr create -R o/r .*--label skip-changelog' '$GH_LOG' && ! grep -q '^pr edit' '$GH_LOG'"
 reset; rm_caller
 "$BS" o/r --review > "$TMP/out"
 check "no label call when absent" "! grep -q '^pr edit' '$GH_LOG'"
@@ -176,7 +176,7 @@ check "old default caller: harden branch" "grep -q -- '-X POST repos/o/r/git/ref
 check "writes review.yml with blob sha" "grep -q -- '-X PUT repos/o/r/contents/.github/workflows/review.yml .*branch=NO-TICKET-claude-review-harden.*sha=blob123' '$GH_LOG'"
 check "harden PR title" "grep -qF -- '--head NO-TICKET-claude-review-harden --title [NO-TICKET] ci: harden Claude review caller (pin SHA, fork guard)' '$GH_LOG'"
 check "harden PR body template + fixes" "grep -q '^## Proof' '$GH_PRBODY' && grep -q '^## Risk + rollback' '$GH_PRBODY' && grep -q 'Fork guard' '$GH_PRBODY' && grep -q 'SHA pin' '$GH_PRBODY'"
-check "harden PR gets skip-changelog" "grep -q '^pr edit .*--add-label skip-changelog' '$GH_LOG'"
+check "harden PR created with skip-changelog" "grep -q '^pr create .*NO-TICKET-claude-review-harden.*--label skip-changelog' '$GH_LOG'"
 decode "$TMP/h.yml"
 check "hardened file has guard and pin" "grep -q 'if: github.event.pull_request' '$TMP/h.yml' && grep -qE '@[0-9a-f]{40}' '$TMP/h.yml'"
 check "only review.yml contents touched" "! grep -- '-X PUT .*contents/' '$GH_LOG' | grep -qv 'contents/.github/workflows/review.yml'"
@@ -186,6 +186,7 @@ printf '%s' "$OLD_CALLER" > "$FAKE_BRANCH_CALLER"
 FAKE_PR=https://github.com/o/r/pull/9 FAKE_LABELS='[{"name":"skip-changelog"},{"name":"REVIEWED"}]' "$BS" o/r --review > "$TMP/out"
 check "open caller PR: updates its branch" "grep -q -- '-X PUT repos/o/r/contents/.github/workflows/review.yml .*branch=NO-TICKET-claude-review .*sha=blob123' '$GH_LOG'"
 check "open caller PR: no new branch or PR" "! grep -q -- '-X POST repos/o/r/git/refs' '$GH_LOG' && ! grep -q '^pr create' '$GH_LOG'"
+check "open caller PR: labelled before the push" "[ \"\$(grep -n -- '--add-label skip-changelog' '$GH_LOG' | head -1 | cut -d: -f1)\" -lt \"\$(grep -n -- '-X PUT repos/o/r/contents' '$GH_LOG' | head -1 | cut -d: -f1)\" ]"
 check "open caller PR: comments" "grep -q '^pr comment https://github.com/o/r/pull/9 ' '$GH_LOG' && grep -q 'caller=pr-updated' '$TMP/out'"
 reset
 printf '%s' "$OLD_CALLER" > "$FAKE_BRANCH_CALLER"
@@ -195,7 +196,7 @@ reset
 printf '%s' "$OLD_CALLER" > "$FAKE_CALLER"
 FAKE_LABELS='[{"name":"REVIEWED"},{"name":"skip-changelog"}]' "$BS" o/r --review --dry-run > "$TMP/out"
 check "update dry run: no mutating calls" "! grep -q -e '-X ' -e '^pr create' -e '^pr edit' -e '^pr comment' '$GH_LOG'"
-check "update dry run: plans harden PR" "grep -q 'dry  gh pr create .*NO-TICKET-claude-review-harden' '$TMP/out' && grep -q 'dry  gh pr edit .*skip-changelog' '$TMP/out'"
+check "update dry run: plans harden PR with label" "grep -q 'dry  gh pr create .*NO-TICKET-claude-review-harden.*--label skip-changelog' '$TMP/out'"
 
 echo "-- secret"
 reset

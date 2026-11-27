@@ -295,19 +295,21 @@ label_skip_changelog() {
   echo "ok   skip-changelog applied to $1"
 }
 
-# open_pr <branch> <base> <title> <body-fn>
+has_skip_label() { jq -e '.[] | select(.name == "skip-changelog")' <<<"$LABELS" >/dev/null; }
+
+# open_pr <branch> <base> <title> <body-fn>: the label goes on in the create call so the
+# opened event already carries it (CHANGELOG gates read labels from the event payload).
 open_pr() {
-  local pr
+  local pr label=()
+  has_skip_label && label=(--label skip-changelog)
   if [ "$DRY_RUN" = 1 ]; then
-    printf 'dry  gh pr create -R %s --base %s --head %s\n' "$REPO" "$2" "$1"
-    label_skip_changelog ""
+    printf 'dry  gh pr create -R %s --base %s --head %s %s\n' "$REPO" "$2" "$1" "${label[*]:-}"
     ST_CALLER=planned
     return
   fi
-  pr=$("$4" | gh pr create -R "$REPO" --base "$2" --head "$1" --title "$3" --body-file -) \
+  pr=$("$4" | gh pr create -R "$REPO" --base "$2" --head "$1" --title "$3" --body-file - ${label[@]+"${label[@]}"}) \
     || die "failed to open PR"
-  echo "ok   caller PR opened: $pr"
-  label_skip_changelog "$pr"
+  echo "ok   caller PR opened: $pr${label[*]:+ (skip-changelog)}"
   ST_CALLER="pr-opened"
 }
 
@@ -362,6 +364,7 @@ refresh_pr() {
     ST_CALLER="pr-open"
     return
   fi
+  label_skip_changelog "$url"
   put_caller "$br" "$rendered" "$BRANCH_BLOB" "$HARDEN_TITLE"
   if [ "$DRY_RUN" = 1 ]; then
     printf 'dry  gh pr comment %s (caller refreshed to %s)\n' "$url" "${REVIEW_SHA:0:7}"
@@ -372,7 +375,6 @@ refresh_pr() {
     echo "ok   caller PR $url updated"
     ST_CALLER="pr-updated"
   fi
-  label_skip_changelog "$url"
 }
 
 setup_review_caller() {
