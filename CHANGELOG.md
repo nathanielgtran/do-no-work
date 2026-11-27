@@ -2,7 +2,7 @@
 
 ## Unreleased
 - feat-8: reusable `claude-review.yml` workflow (Claude read-only review, applies REVIEWED only on PASS for the reviewed commit), `scripts/claude-review-verdict.sh` with tests, caller example, and self-review via `review.yml`
-- fix-4: review.yml and the caller example grant contents: read + pull-requests: write; without it the reusable review workflow hit startup_failure under the read-only default token
+- fix-4: review workflow only removes REVIEWED when present (gh errors on a missing label); review.yml and the caller example grant contents: read + pull-requests: write; without it the reusable review workflow hit startup_failure under the read-only default token
 - feat-9: stop-gate Stop hook blocks the stop while the repo's fast check fails (env, .claude/stop-gate or auto-detect; timeout, 40-line clip, loop-safe)
 - feat-10: protect-lint-config PreToolUse hook asks before edits to lint, format, type-check config and baselines
 - feat-11: read-only reviewer subagent (claude/agents/reviewer.md), installed to ~/.claude/agents/

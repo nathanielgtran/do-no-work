@@ -56,7 +56,9 @@ jobs:
             exit 0
           fi
           # A new push invalidates any earlier review.
-          gh pr edit "$PR" -R "$REPO" --remove-label REVIEWED
+          if gh pr view "$PR" -R "$REPO" --json labels --jq '.labels[].name' | grep -qx REVIEWED; then
+            gh pr edit "$PR" -R "$REPO" --remove-label REVIEWED
+          fi
           if [ "$IS_DRAFT" = "true" ]; then
             echo "::notice::Draft PR: review skipped."
             echo "run=false" >> "$GITHUB_OUTPUT"
