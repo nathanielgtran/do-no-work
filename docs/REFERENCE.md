@@ -226,7 +226,20 @@ Installed to `~/.local/bin/`. Most are bash; `engraph-mcp-proxy` is Python.
 **What:** Applies fleet defaults to an existing GitHub repo through `gh api`: read-only Actions token, selected actions only, fork-PR approval, squash-only merges with branch auto-delete, secret scanning and push protection, private vulnerability reporting, Dependabot alerts, the `REVIEWED` label, and a `protect-main` ruleset. Idempotent.  **When it runs:** Once per repo, by hand.
 **Example:** `BOOTSTRAP_CHECKS="test (ubuntu-latest),gitleaks" repo-bootstrap owner/repo --public`.
 **Configure / disable:** `--dry-run` prints the writes. `--public` warns on self-hosted runners. `BOOTSTRAP_ACTIONS` sets allowed actions (default `astral-sh/setup-uv@*,gitleaks/gitleaks-action@*`); without `BOOTSTRAP_CHECKS` the required-checks rule is skipped. Test: `tests/bootstrap_test.sh`.
+**Review mode:** `repo-bootstrap owner/repo --review` sets up only the CI Claude review. It ensures the `REVIEWED` label exists, merges the pinned `claude-code-action` and its nested `setup-bun` into a `selected` actions allowlist without dropping existing patterns, opens a PR adding `.github/workflows/review.yml` if missing, and sets `CLAUDE_CODE_OAUTH_TOKEN` from the env via stdin (never echoed). Private repos take the runner from `BOOTSTRAP_REVIEW_RUNS_ON` (JSON, e.g. `'["self-hosted","nuc"]'`); `--public` refuses self-hosted. Test: `tests/review_test.sh`.
 **Source:** [`bin/repo-bootstrap`](../bin/repo-bootstrap)
+
+### `review-rollout`
+**What:** Runs `repo-bootstrap <repo> --review` across many repos, adding `--public` for public ones, continuing past failures, then prints a repo / label / allowlist / caller / secret table.  **When it runs:** By hand when enabling the review on more repos.
+**Example:** `CLAUDE_CODE_OAUTH_TOKEN=... review-rollout owner/a owner/b`.
+**Configure / disable:** Same env as `repo-bootstrap --review`. To disable the review on a repo, delete its `.github/workflows/review.yml`.
+**Source:** [`bin/review-rollout`](../bin/review-rollout)
+
+### `dnw-doctor`
+**What:** Read-only drift check of the live install against the repo: missing or stale installed files, hooks from `settings.example.json` not wired into `~/.claude/settings.json`, missing `statusLine` / deny rules, git identity, shell rc source line, and tools on PATH. Each problem prints a `fix:` line with the exact command.  **When it runs:** By hand after pulling.
+**Example:** `dnw-doctor` prints `ok installed 43 files match the repo` or `warn settings hook missing under PreToolUse: ...` with its fix. `--json` for machines. Exit 1 on any `fail`.
+**Configure / disable:** `--repo DIR` to check another checkout. It never edits settings.
+**Source:** [`bin/dnw-doctor`](../bin/dnw-doctor), mapping shared with `install.sh` via [`scripts/install-manifest.sh`](../scripts/install-manifest.sh)
 
 ### `ci-wait`
 **What:** Polls a PR's checks until all finish; prints each result; exits 0 only if all passed (success, skipped, neutral).  **When it runs:** You or an agent run it after a push.
