@@ -39,6 +39,14 @@ Sources of good features, in priority order:
 - TODO.md items marked as gaps (not "verify live" chores).
 - The user's actual goal (memory `project_*`). Ask what would change a decision for them.
 
+**Research, every round.** While you scout, run one background research agent (web search, then
+fetch primary sources) on how others solve the candidate problems: official docs, tools with
+traction, practitioner write-ups, and what backfired. Give it the repo's stack and the 4-6
+candidate problems; ask for ranked approaches with links and dates, flagging unverified claims.
+Fold the findings into the picks: prefer a proven approach over a homegrown one, drop a
+candidate if a maintained tool already does it, and put the sources in each agent spec and the
+PR's `## Why`.
+
 Pick **at most 3** features, independent enough to build in parallel. For each one, write one line
 on what it does, one on why it matters to the user, and the files it touches. Prefer features that
 touch different modules. Two features in the same formatter mean rebase pain, not a blocker.
