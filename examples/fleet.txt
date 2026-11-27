@@ -1,0 +1,3 @@
+# One owner/repo per line. Copy to ~/.config/do-no-work/fleet.txt (or point FLEET_FILE at it).
+example-owner/example-api
+example-owner/example-web

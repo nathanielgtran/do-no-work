@@ -1,0 +1,181 @@
+#!/bin/bash
+# Track open PRs across many repos.
+#
+# Usage: fleet <prs|watch|ready> [--repos owner/a,owner/b] [--author @me] [--label X]
+#              [--head <branch-glob>] [--json] [--timeout 1500] [--interval 30]
+#
+#   prs    table of open PRs: checks, REVIEWED, merge state, ready?
+#   watch  poll until no matching PR has pending checks, then print the table and
+#          one line per failing check. Exit 0 all ready, 1 not all ready, 2 timeout.
+#   ready  print only ready PRs as owner/repo#N (merge them one gh call each)
+#
+# Repo list: --repos, else ${FLEET_FILE:-$HOME/.config/do-no-work/fleet.txt}
+# (one owner/repo per line, # comments). ready = no failed or pending checks,
+# REVIEWED label, mergeStateStatus CLEAN. --json applies to prs and watch.
+set -uo pipefail
+
+CMD=""
+REPOS_ARG=""
+AUTHOR=""
+LABEL=""
+HEAD_GLOB=""
+JSON=0
+TIMEOUT=1500
+INTERVAL=30
+REPOS=""
+
+die() { echo "fleet: $*" >&2; exit "${2:-2}"; }
+
+need_val() { [ "$1" -ge 2 ] || die "$2 needs a value"; }
+
+parse_args() {
+  [ $# -gt 0 ] || die "usage: fleet <prs|watch|ready> [flags] (see header of $0)"
+  CMD="$1"; shift
+  case "$CMD" in prs|watch|ready) ;; *) die "unknown subcommand: $CMD" ;; esac
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --repos) need_val $# "$1"; REPOS_ARG="$2"; shift 2 ;;
+      --author) need_val $# "$1"; AUTHOR="$2"; shift 2 ;;
+      --label) need_val $# "$1"; LABEL="$2"; shift 2 ;;
+      --head) need_val $# "$1"; HEAD_GLOB="$2"; shift 2 ;;
+      --timeout) need_val $# "$1"; TIMEOUT="$2"; shift 2 ;;
+      --interval) need_val $# "$1"; INTERVAL="$2"; shift 2 ;;
+      --json) JSON=1; shift ;;
+      *) die "unknown flag: $1" ;;
+    esac
+  done
+  [[ "$TIMEOUT" =~ ^[0-9]+$ && "$INTERVAL" =~ ^[0-9]+$ ]] || die "--timeout and --interval take whole seconds"
+}
+
+read_repo_file() {
+  local file="$1"
+  [ -r "$file" ] || die "no repo list: pass --repos owner/a,owner/b or create $file (see examples/fleet.txt)"
+  sed -e 's/#.*//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' "$file" | grep -v '^$'
+}
+
+load_repos() {
+  if [ -n "$REPOS_ARG" ]; then
+    REPOS=$(printf '%s\n' "$REPOS_ARG" | tr ',' '\n' | grep -v '^$')
+  else
+    REPOS=$(read_repo_file "${FLEET_FILE:-$HOME/.config/do-no-work/fleet.txt}") || exit 2
+  fi
+  [ -n "$REPOS" ] || die "repo list is empty"
+  local r
+  for r in $REPOS; do
+    [[ "$r" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || die "bad repo name: $r (want owner/repo)"
+  done
+}
+
+glob_to_regex() {
+  printf '%s' "$1" | sed -e 's/[][\.^$+(){}|]/\\&/g' -e 's/\*/.*/g' -e 's/?/./g'
+}
+
+JQ_ROWS='
+def res:
+  if (.status // null) != null and .status != "COMPLETED" then "pending"
+  else ((.conclusion // .state // "") | ascii_upcase) as $c
+    | if $c == "SUCCESS" or $c == "SKIPPED" or $c == "NEUTRAL" then "pass"
+      elif $c == "PENDING" or $c == "EXPECTED" or $c == "" then "pending"
+      else "fail" end end;
+[.[] | select(.headRefName | test($re)) | (.statusCheckRollup // []) as $cs
+  | ([$cs[] | select(res == "pass")] | length) as $p
+  | ([$cs[] | select(res == "fail")] | length) as $f
+  | ([$cs[] | select(res == "pending")] | length) as $n
+  | ([.labels[]?.name] | index("REVIEWED") != null) as $rev
+  | {repo: $repo, number: .number, title: .title, head: .headRefName,
+     pass: $p, fail: $f, pending: $n, reviewed: $rev, merge: .mergeStateStatus,
+     ready: ($f == 0 and $n == 0 and $rev and .mergeStateStatus == "CLEAN"),
+     failed: [$cs[] | select(res == "fail") | {name: (.name // .context), url: (.detailsUrl // .targetUrl // "")}]}]'
+
+fetch_repo() {
+  local repo="$1" re="$2" json
+  local fields="number,title,headRefName,labels,mergeStateStatus,statusCheckRollup,author"
+  local args=(pr list -R "$repo" --state open --limit 100 --json "$fields")
+  [ -z "$AUTHOR" ] || args+=(--author "$AUTHOR")
+  [ -z "$LABEL" ] || args+=(--label "$LABEL")
+  json=$(gh "${args[@]}") || return 1
+  jq -c --arg repo "$repo" --arg re "$re" "$JQ_ROWS" <<<"$json"
+}
+
+collect_rows() {
+  local re="^.*$" repo part all="[]"
+  [ -z "$HEAD_GLOB" ] || re="^$(glob_to_regex "$HEAD_GLOB")\$"
+  for repo in $REPOS; do
+    part=$(fetch_repo "$repo" "$re") || die "gh pr list failed for $repo" 1
+    all=$(jq -c --argjson a "$all" '$a + .' <<<"$part") || die "bad JSON from gh for $repo" 1
+  done
+  printf '%s\n' "$all"
+}
+
+print_table() {
+  local rows="$1" tab
+  tab=$(printf '\t')
+  {
+    printf 'REPO\t#\tTITLE\tCHECKS\tREVIEWED\tMERGE\tREADY\n'
+    jq -r '.[] | [.repo, (.number|tostring),
+      (if (.title|length) > 50 then .title[:47] + "..." else .title end),
+      "\(.pass)p/\(.fail)f/\(.pending)n",
+      (if .reviewed then "yes" else "no" end), (.merge // "UNKNOWN"),
+      (if .ready then "yes" else "no" end)] | @tsv' <<<"$rows"
+  } | column -t -s "$tab"
+}
+
+emit_rows() {
+  if [ "$JSON" -eq 1 ]; then printf '%s\n' "$1"; else print_table "$1"; fi
+}
+
+first_error_line() {
+  local repo="$1" url="$2" run log
+  run=$(printf '%s' "$url" | sed -n 's#.*/runs/\([0-9][0-9]*\).*#\1#p')
+  [ -n "$run" ] || { echo "logs unavailable (no run id)"; return; }
+  log=$(gh run view "$run" -R "$repo" --log-failed 2>&1) || { echo "logs unavailable"; return; }
+  printf '%s\n' "$log" | grep -m1 '##\[error\]' | sed 's/.*##\[error\]//' | grep . \
+    || echo "no ##[error] line in failed log"
+}
+
+failure_lines() {
+  local rows="$1" repo num name url tab
+  tab=$(printf '\t')
+  jq -r '.[] | . as $r | .failed[] | [$r.repo, ($r.number|tostring), .name, .url] | @tsv' <<<"$rows" |
+    while IFS="$tab" read -r repo num name url; do
+      printf '%s#%s %s: %s\n' "$repo" "$num" "$name" "$(first_error_line "$repo" "$url")"
+    done
+}
+
+cmd_prs() {
+  local rows
+  rows=$(collect_rows) || exit $?
+  emit_rows "$rows"
+}
+
+cmd_ready() {
+  local rows
+  rows=$(collect_rows) || exit $?
+  jq -r '.[] | select(.ready) | "\(.repo)#\(.number)"' <<<"$rows"
+}
+
+cmd_watch() {
+  local rows pending timedout=0
+  SECONDS=0
+  while :; do
+    rows=$(collect_rows) || exit $?
+    pending=$(jq '[.[].pending] | add // 0' <<<"$rows")
+    [ "$pending" -eq 0 ] && break
+    if [ "$SECONDS" -ge "$TIMEOUT" ]; then timedout=1; break; fi
+    sleep "$INTERVAL"
+  done
+  emit_rows "$rows"
+  if [ "$JSON" -eq 1 ]; then failure_lines "$rows" >&2; else failure_lines "$rows"; fi
+  [ "$timedout" -eq 0 ] || { echo "fleet: timed out after ${TIMEOUT}s with $pending pending checks" >&2; exit 2; }
+  jq -e 'all(.[]; .ready)' <<<"$rows" >/dev/null
+}
+
+main() {
+  parse_args "$@"
+  command -v gh >/dev/null || die "gh not found" 1
+  command -v jq >/dev/null || die "jq not found" 1
+  load_repos
+  "cmd_$CMD"
+}
+
+main "$@"
