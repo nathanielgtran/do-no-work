@@ -4,6 +4,8 @@ set -uo pipefail
 cmd=$(jq -r '.tool_input.command // ""' 2>/dev/null)
 case "$cmd" in *"gh pr merge"*) ;; *) exit 0 ;; esac
 decision() { printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"%s","permissionDecisionReason":"%s"}}\n' "$1" "$2"; exit 0; }
+[ "$(printf '%s' "$cmd" | grep -oE 'gh[[:space:]]+pr[[:space:]]+merge' | wc -l)" -eq 1 ] || decision ask "one gh pr merge per command"
+printf '%s' "$cmd" | grep -Eq '(^|[;&|[:space:]])(cd|pushd)[[:space:]]|git[[:space:]]+-C' && decision ask "no cd/-C with gh pr merge: pass -R owner/repo instead"
 num=$(printf '%s' "$cmd" | grep -oE 'merge[[:space:]]+[0-9]+' | grep -oE '[0-9]+' | head -1)
 # First -R/--repo only: chained commands (`gh pr checks N -R x && gh pr merge N -R x`)
 # repeat the flag, and a multi-line repo makes every gh call below fail.

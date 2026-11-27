@@ -18,18 +18,22 @@ done
 
 log() { printf '==> %s\n' "$*"; }
 
-# Back up an existing non-link target, then link or copy src -> dst.
+BACKUP="$HOME/.dotfiles-backup/$(date +%Y%m%d%H%M%S)"
+
+# Back up a differing target outside the install dirs, then link or copy src -> dst.
 place() {
   local src="$1" dst="$2"
   mkdir -p "$(dirname "$dst")"
-  if [ -e "$dst" ] && [ ! -L "$dst" ]; then
-    mv "$dst" "$dst.pre-dotfiles.$(date +%Y%m%d%H%M%S)"
-    log "backed up $dst"
+  if [ -L "$dst" ] && [ "$(readlink "$dst")" = "$src" ] && [ "$MODE" = link ]; then return; fi
+  if [ ! -L "$dst" ] && [ -e "$dst" ] && diff -rq "$src" "$dst" >/dev/null 2>&1 && [ "$MODE" = copy ]; then return; fi
+  if [ -e "$dst" ] || [ -L "$dst" ]; then
+    mkdir -p "$BACKUP$(dirname "${dst#"$HOME"}")"
+    mv "$dst" "$BACKUP${dst#"$HOME"}"
+    log "backed up $dst -> $BACKUP"
   fi
   if [ "$MODE" = link ]; then
     ln -sfn "$src" "$dst"
   else
-    [ -L "$dst" ] && unlink "$dst"
     cp -R "$src" "$dst"
   fi
 }
@@ -83,13 +87,19 @@ install_home() {
   place "$REPO/home/ohmyposh-theme.json" "$HOME/.config/ohmyposh/theme.json"
   place "$REPO/home/bashrc.d/dotfiles.sh" "$HOME/.config/dotfiles/dotfiles.sh"
   if [ ! -f "$HOME/.gitconfig.local" ]; then
-    read -rp "git user.name: " n; read -rp "git user.email: " e
+    local n="${GIT_NAME:-}" e="${GIT_EMAIL:-}"
+    if [ -z "$n" ] && [ -t 0 ]; then read -rp "git user.name: " n; read -rp "git user.email: " e; fi
+    if [ -z "$n" ]; then read -r n || true; read -r e || true; fi
+    [ -n "$n" ] || { log "set GIT_NAME/GIT_EMAIL or create ~/.gitconfig.local yourself"; return 0; }
     printf '[user]\n\tname = %s\n\temail = %s\n' "$n" "$e" > "$HOME/.gitconfig.local"
   fi
-  local rc="$HOME/.bashrc"
-  [ "$(uname)" = Darwin ] && rc="$HOME/.bash_profile"
+  local rcs=("$HOME/.bashrc")
+  [ "$(uname)" = Darwin ] && rcs=("$HOME/.bash_profile" "$HOME/.zshrc")
   local line='[ -f "$HOME/.config/dotfiles/dotfiles.sh" ] && . "$HOME/.config/dotfiles/dotfiles.sh"'
-  grep -qF "$line" "$rc" 2>/dev/null || printf '\n%s\n' "$line" >> "$rc"
+  local rc
+  for rc in "${rcs[@]}"; do
+    grep -qF "$line" "$rc" 2>/dev/null || printf '\n%s\n' "$line" >> "$rc"
+  done
 }
 
 install_upstream_skills() {
@@ -97,7 +107,7 @@ install_upstream_skills() {
   command -v npx >/dev/null || { log "npx missing; skipping upstream skills"; return; }
   grep -vE '^\s*(#|$)' "$REPO/skills-upstream.txt" | while read -r repo; do
     log "skill: $repo"
-    npx -y skills add "$repo" || log "failed: $repo (continuing)"
+    npx -y skills@1.9.0 add "$repo" -g -a claude-code -y </dev/null || log "failed: $repo (continuing)"
   done
 }
 

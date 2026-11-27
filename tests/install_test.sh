@@ -25,7 +25,9 @@ run_mode() {
   fi
   # Second run must be idempotent: rc line not duplicated
   HOME="$home" DOTFILES_SKIP_UPSTREAM=1 "$REPO/install.sh" --no-deps $mode >/dev/null </dev/null
-  check "idempotent rc line" "[ \$(cat '$home/.bashrc' '$home/.bash_profile' 2>/dev/null | grep -c dotfiles.sh) -eq 1 ]"
+  check "rerun makes no backups" "[ ! -d '$home/.dotfiles-backup' ]"
+  if [ "$(uname)" = Darwin ]; then check "zshrc sources dotfiles" "grep -q dotfiles.sh '$home/.zshrc'"; fi
+  check "idempotent rc line" "[ \$(cat '$home/.bashrc' '$home/.bash_profile' 2>/dev/null | grep -c dotfiles.sh) -eq \$(ls '$home'/.bashrc '$home'/.bash_profile '$home'/.zshrc 2>/dev/null | wc -l) ]"
 }
 
 run_mode ""

@@ -27,6 +27,8 @@ jobs:
       - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
       - name: Shell syntax
         run: for f in install.sh tests/*.sh bin/* claude/hooks/*.sh; do head -1 "$f" | grep -q bash && bash -n "$f"; done
+      - name: Hook decisions
+        run: ./tests/hooks_test.sh
       - name: Installer
         run: ./tests/install_test.sh
       - name: wanderlog

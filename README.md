@@ -34,6 +34,10 @@ Existing files are moved to `<file>.pre-dotfiles.<timestamp>` before being repla
 | `home/` | `gitconfig` (identity goes in `~/.gitconfig.local`), `gitignore_global`, oh-my-posh theme, `bashrc.d/dotfiles.sh` (brew, PATH, prompt, `pass`-backed secrets) |
 | `skills-upstream.txt` | Third-party skills installed from their own repos via `npx skills add`, not copied here |
 
+## Warning: openspec-autonomy
+
+`claude/hooks/openspec-autonomy.sh` auto-approves an allowlist of Bash commands (git add/commit/rebase/push to non-main branches, `gh pr create`, test runners) in any repo containing `openspec/config.yaml`. A repo you clone can contain that file. Only wire this hook if you keep the `permissions.deny` block from `settings.example.json`, and drop it if you run Claude in repos you don't trust.
+
 ## Also installed
 
 `--no-deps` skips these. npm globals: `chrome-devtools-mcp`, `@fission-ai/openspec`, `@charmland/crush`. uv tools: `mcp-proxy`, `aider-chat`. Not automated: `bombadil` (UI property testing, binary in `~/.local/bin`), `herdr` (installs its own Claude hook), and `transcribe` expects a local Parakeet install at `~/parakeet`.

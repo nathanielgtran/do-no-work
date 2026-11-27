@@ -1,5 +1,5 @@
 #!/bin/bash
-# Sourced from ~/.bashrc (Linux/WSL) or ~/.bash_profile (macOS) by install.sh.
+# Sourced from ~/.bashrc (Linux/WSL) or ~/.bash_profile + ~/.zshrc (macOS) by install.sh.
 
 # Homebrew (macOS arm64/intel, Linuxbrew)
 for b in /opt/homebrew/bin/brew /usr/local/bin/brew /home/linuxbrew/.linuxbrew/bin/brew; do
@@ -11,7 +11,7 @@ export GPG_TTY=$(tty)
 
 # Prompt
 if command -v oh-my-posh >/dev/null; then
-  eval "$(oh-my-posh init bash --config "$HOME/.config/ohmyposh/theme.json")"
+  eval "$(oh-my-posh init "$([ -n "${ZSH_VERSION:-}" ] && echo zsh || echo bash)" --config "$HOME/.config/ohmyposh/theme.json")"
 fi
 
 # Optional: deploy/ssh target used by the /deploy, /hc, /rollback commands
@@ -19,8 +19,8 @@ fi
 
 # Launch Claude Code from ~/Github unless already inside a git repo
 claude() {
-  if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    cd "$HOME/Github" || return
+  if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1 && [ -d "$HOME/Github" ]; then
+    cd "$HOME/Github" || true
   fi
   command claude "$@"
 }

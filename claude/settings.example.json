@@ -1,4 +1,22 @@
 {
+  "permissions": {
+    "deny": [
+      "Bash(rm:*)",
+      "Bash(sudo:*)",
+      "Bash(git push origin main:*)",
+      "Bash(git push origin master:*)",
+      "Bash(git push --force:*)",
+      "Bash(gh pr merge --admin:*)",
+      "Edit(~/.claude/settings.json)",
+      "Edit(~/.claude/settings.local.json)",
+      "Edit(~/.claude/autonomy-level)",
+      "Write(~/.claude/autonomy-level)",
+      "Edit(~/.claude/hooks/**)",
+      "Write(~/.claude/hooks/**)",
+      "Edit(~/Github/do-no-work/claude/hooks/**)",
+      "Write(~/Github/do-no-work/claude/hooks/**)"
+    ]
+  },
   "hooks": {
     "PreToolUse": [
       {

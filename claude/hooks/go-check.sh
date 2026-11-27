@@ -14,11 +14,19 @@ done
 
 cd "$DIR" || exit 0
 
-PKG="./$(realpath --relative-to="$DIR" "$(dirname "$FILE")")"
+REL="$(cd "$(dirname "$FILE")" && pwd -P)"
+REL="${REL#"$(pwd -P)"}"
+PKG=".${REL:-/}"
 MAX_LINES=40
 PROBLEMS=""
 
 clip() { head -n "$MAX_LINES"; }
+timeout() {
+  if command -v gtimeout >/dev/null; then gtimeout "$@"
+  elif [ -n "$(type -P timeout)" ]; then command timeout "$@"
+  else shift; "$@"
+  fi
+}
 
 if ! TEST_OUT=$(timeout 90 go test "$PKG" 2>&1); then
   PROBLEMS+="TEST FAILURES ($PKG):\n$(printf '%s\n' "$TEST_OUT" | clip)\n\n"

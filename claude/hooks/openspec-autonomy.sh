@@ -46,7 +46,7 @@ done < <(printf '%s' "$cmd" | grep -oE '(\bcd|\bgit[[:space:]]+-C)[[:space:]]+[^
 
 # Hard stops: never auto-allow these. Fall through to normal permission handling.
 hard='(^|[;&|(`[:space:]])(rm|sudo|dd|mkfs|shred|ssh|scp|rsync)([[:space:]]|$)'
-hard+='|git[^;&|]*push[^;&|]*[[:space:]](origin[[:space:]]+)?(HEAD:)?(main|master)([[:space:]]|$)'
+hard+='|git[^;&|]*push[^;&|]*[[:space:]:/](main|master)([[:space:]]|$)'
 hard+='|git[^;&|]*push[^;&|]*[[:space:]](-f|--force)([[:space:]]|$)'
 hard+='|git[^;&|]*reset[[:space:]]+--hard|git[[:space:]]+clean'
 hard+='|gh[^;&|]*--admin|gh[[:space:]]+release|gh[[:space:]]+workflow[[:space:]]+run|gh[[:space:]]+api'
@@ -58,6 +58,15 @@ hard+='|\bpass[[:space:]]|send_message|sendmail|\bmail[[:space:]]'
 if printf '%s' "$cmd" | grep -Eq "$hard"; then
   exit 0
 fi
+
+# Allowlist: no pipes, substitution or redirects, and every segment starts with a known verb.
+case "$cmd" in *'|'*|*'`'*|*'$('*|*'>'*|*'<'*) exit 0 ;; esac
+allow='^(cd [^[:space:]]+|git (add|commit|rebase|fetch|pull|switch|checkout|branch|worktree|status|log|diff|show|stash|push)|gh pr (create|view|edit|checks|list|comment|diff)|openspec|npm (test|ci|run (test|lint|build|typecheck))|pytest|uv run (pytest|ruff)|go (test|vet|build)|make (test|lint))([[:space:]]|$)'
+while IFS= read -r seg; do
+  seg="${seg#"${seg%%[![:space:]]*}"}"
+  [ -z "$seg" ] && continue
+  printf '%s' "$seg" | grep -Eq "$allow" || exit 0
+done < <(printf '%s\n' "$cmd" | sed -E 's/(&&|;)/\n/g')
 
 printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","permissionDecisionReason":"openspec-autonomy: OpenSpec repo, reversible command"}}\n'
 exit 0
