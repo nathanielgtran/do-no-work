@@ -36,6 +36,18 @@ run_mode() {
   check "idempotent rc line" "[ $dupes -eq 0 ]"
 }
 
+run_noident() {
+  local home out
+  home="$(mktemp -d)"
+  out="$(HOME="$home" DOTFILES_SKIP_UPSTREAM=1 "$REPO/install.sh" --no-deps </dev/null 2>&1)"
+  echo "-- no identity, no TTY"
+  check "rc wired without identity" "grep -qs 'dotfiles.sh' '$home/.bashrc' '$home/.bash_profile'"
+  check "no gitconfig.local created" "[ ! -e '$home/.gitconfig.local' ]"
+  check "identity hint printed" "grep -q 'no git identity' <<<'$out'"
+  check "files still installed" "[ -e '$home/.claude/hooks/autonomy-gate.sh' ]"
+}
+
 run_mode ""
 run_mode --copy
+run_noident
 exit $fail

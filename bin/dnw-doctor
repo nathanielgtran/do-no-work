@@ -1,0 +1,178 @@
+#!/bin/bash
+# Report drift between this repo and the live install. Read-only.
+#
+# Usage: dnw-doctor [--repo DIR] [--json]
+#   --repo DIR  repo to compare against (default: the repo this script lives in)
+#   --json      emit [{status, area, detail, fix}] instead of text
+#
+# Exit 1 if any check fails, else 0.
+set -euo pipefail
+
+JSON=0
+TILDE='~'
+REPO=""
+S=()
+A=()
+D=()
+F=()
+
+die() { echo "dnw-doctor: $*" >&2; exit 2; }
+
+emit() {
+  S+=("$1")
+  A+=("$2")
+  D+=("$3")
+  F+=("${4:-}")
+}
+
+self_repo() {
+  local p="${BASH_SOURCE[0]}" t
+  while [ -L "$p" ]; do
+    t="$(readlink "$p")"
+    case "$t" in /*) p="$t" ;; *) p="$(dirname "$p")/$t" ;; esac
+  done
+  (cd "$(dirname "$p")/.." && pwd)
+}
+
+parse_args() {
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --repo) [ $# -ge 2 ] || die "--repo needs a directory"; REPO="$2"; shift 2 ;;
+      --json) JSON=1; shift ;;
+      *) die "unknown flag: $1" ;;
+    esac
+  done
+  [ -n "$REPO" ] || REPO="$(self_repo)"
+  REPO="$(cd "$REPO" && pwd)" || die "bad --repo"
+  [ -x "$REPO/scripts/install-manifest.sh" ] || die "$REPO has no scripts/install-manifest.sh; pass --repo"
+}
+
+# Returns 0 when it emitted a problem, 1 when the target is fine.
+check_one_file() {
+  local src="$1" dst="$2" fix="cd '$REPO' && ./install.sh --no-deps" short="${2#"$HOME"/}"
+  if [ ! -e "$dst" ] && [ ! -L "$dst" ]; then
+    emit fail installed "missing $TILDE/$short" "$fix"
+  elif [ -L "$dst" ]; then
+    if [ "$(readlink "$dst")" = "$src" ]; then return 1; fi
+    emit warn installed "$TILDE/$short links to $(readlink "$dst"), not the repo" "$fix"
+  elif diff -rq "$src" "$dst" >/dev/null 2>&1; then
+    return 1
+  else
+    emit warn installed "$TILDE/$short differs from the repo (stale copy)" "$fix --copy"
+  fi
+  return 0
+}
+
+check_installed() {
+  local src dst total=0 bad=0
+  while IFS=$'\t' read -r src dst; do
+    total=$((total + 1))
+    if check_one_file "$src" "$dst"; then bad=$((bad + 1)); fi
+  done < <("$REPO/scripts/install-manifest.sh" "$REPO")
+  [ "$bad" -eq 0 ] && emit ok installed "$total files match the repo"
+  return 0
+}
+
+hook_gaps() {
+  jq -r --arg home "$HOME" --slurpfile u "$2" '
+    def norm: split($home) | join("~") | split("$HOME") | join("~");
+    ($u[0].hooks // {}) as $uh
+    | .hooks | to_entries[] | .key as $ev | .value[].hooks[] | .command as $c
+    | select(([$uh[$ev][]?.hooks[]?.command | norm] | any(. == ($c | norm))) | not)
+    | "\($ev)\t\($c)"' "$1"
+}
+
+deny_gaps() {
+  jq -r --arg home "$HOME" --slurpfile u "$2" '
+    def norm: split($home) | join("~");
+    ($u[0].permissions.deny // [] | map(norm)) as $ud
+    | .permissions.deny[] | select(. as $d | $ud | any(. == $d) | not)' "$1"
+}
+
+check_settings() {
+  local ex="$REPO/claude/settings.example.json" us="$HOME/.claude/settings.json" n=0 ev cmd
+  if [ ! -f "$us" ]; then
+    emit warn settings "$TILDE/.claude/settings.json missing" "cp '$ex' ~/.claude/settings.json  # then edit"
+    return 0
+  fi
+  if ! jq -e . "$us" >/dev/null 2>&1; then
+    emit fail settings "$TILDE/.claude/settings.json is not valid JSON" "jq . ~/.claude/settings.json"
+    return 0
+  fi
+  while IFS=$'\t' read -r ev cmd; do
+    n=$((n + 1))
+    emit warn settings "hook missing under $ev: $cmd" "add to ~/.claude/settings.json under hooks.$ev: $cmd"
+  done < <(hook_gaps "$ex" "$us")
+  while IFS= read -r cmd; do
+    n=$((n + 1))
+    emit warn settings "permissions.deny missing: $cmd" "add to ~/.claude/settings.json under permissions.deny: $cmd"
+  done < <(deny_gaps "$ex" "$us")
+  if ! jq -e 'has("statusLine")' "$us" >/dev/null; then
+    n=$((n + 1))
+    emit warn settings "statusLine not set" "add to ~/.claude/settings.json: \"statusLine\": {\"type\": \"command\", \"command\": \"~/.local/bin/pstack-budget-statusline\"}"
+  fi
+  [ "$n" -eq 0 ] && emit ok settings "hooks, deny rules and statusLine match the example"
+  return 0
+}
+
+check_identity() {
+  local e=""
+  if e="$(git config --includes --global user.email)" && [ -n "$e" ]; then
+    emit ok identity "git user.email = $e"
+    return 0
+  fi
+  emit fail identity "git user.email is not set" "git config -f ~/.gitconfig.local user.name 'Your Name' && git config -f ~/.gitconfig.local user.email you@example.com"
+}
+
+check_rc() {
+  local rcs=("$HOME/.bashrc") rc bad=0
+  [ "$(uname)" = Darwin ] && rcs=("$HOME/.bash_profile" "$HOME/.zshrc")
+  for rc in "${rcs[@]}"; do
+    if grep -qF '.config/dotfiles/dotfiles.sh' "$rc" 2>/dev/null; then continue; fi
+    bad=1
+    emit warn shell "${rc#"$HOME"/} does not source dotfiles.sh" "cd '$REPO' && ./install.sh --no-deps"
+  done
+  [ "$bad" -eq 0 ] && emit ok shell "rc sources dotfiles.sh"
+  return 0
+}
+
+check_tools() {
+  local t missing=0
+  for t in gh jq git node uv gitleaks shellcheck; do
+    command -v "$t" >/dev/null 2>&1 && continue
+    missing=1
+    emit warn tools "$t not on PATH" "install $t (brew install $t)"
+  done
+  [ "$missing" -eq 0 ] && emit ok tools "gh jq git node uv gitleaks shellcheck found"
+  return 0
+}
+
+render_text() {
+  local i
+  for i in "${!S[@]}"; do
+    printf '%-4s  %-9s %s\n' "${S[$i]}" "${A[$i]}" "${D[$i]}"
+    [ -z "${F[$i]}" ] || printf '      fix: %s\n' "${F[$i]}"
+  done
+}
+
+render_json() {
+  local i
+  for i in "${!S[@]}"; do
+    printf '%s\x1f%s\x1f%s\x1f%s\n' "${S[$i]}" "${A[$i]}" "${D[$i]}" "${F[$i]}"
+  done | jq -R 'split("\u001f") | {status: .[0], area: .[1], detail: .[2], fix: .[3]}' | jq -s .
+}
+
+main() {
+  parse_args "$@"
+  check_installed
+  check_settings
+  check_identity
+  check_rc
+  check_tools
+  if [ "$JSON" = 1 ]; then render_json; else render_text; fi
+  local s
+  for s in "${S[@]}"; do [ "$s" = fail ] && return 1; done
+  return 0
+}
+
+main "$@"
