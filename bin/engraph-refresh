@@ -1,0 +1,25 @@
+#!/bin/bash
+# Full engraph vault refresh: relink source roots then rebuild the index.
+#
+# MUST run with NO engraph MCP `serve` process holding ~/.engraph — i.e. from a
+# plain terminal with no active Claude Code session (serve takes an exclusive
+# SQLite lock; a concurrent `engraph index` dies with "database is locked").
+#
+# For a single changed note use engraph-enqueue instead. This wrapper is for the
+# periodic full rebuild that catches renames/deletes/new files.
+set -euo pipefail
+
+if pgrep -f 'engraph serve' >/dev/null 2>&1; then
+  echo "ERROR: 'engraph serve' is running (holds the ~/.engraph lock)." >&2
+  echo "Close all Claude Code sessions using the engraph MCP, then re-run." >&2
+  exit 1
+fi
+
+echo "==> relinking source roots into the combined vault"
+"$HOME/.local/bin/engraph-relink"
+
+echo "==> rebuilding index"
+engraph index --rebuild
+
+echo "==> status"
+engraph status

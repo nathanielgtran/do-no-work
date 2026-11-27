@@ -1,0 +1,10 @@
+#!/bin/bash
+# Dump the current Windows clipboard image to a file so Claude Code (WSL) can read it.
+# Usage: snip with Win+Shift+S, then run `pasteimg`. Prints the WSL path to paste/mention.
+set -euo pipefail
+WIN_HOME="${WIN_HOME:-$(wslpath "$(cmd.exe /c "echo %USERPROFILE%" 2>/dev/null | tr -d '\r')")}"
+OUT_WSL="${PASTEIMG_OUT:-$WIN_HOME/Pictures/Screenshots/clip.png}"
+OUT_WIN="$(wslpath -w "$OUT_WSL")"
+powershell.exe -NoProfile -Command "Add-Type -AssemblyName System.Windows.Forms; \$img=[System.Windows.Forms.Clipboard]::GetImage(); if (\$img -ne \$null) { \$img.Save('${OUT_WIN}'); exit 0 } else { exit 1 }" \
+  && echo "$OUT_WSL" \
+  || { echo "No image on clipboard — snip first with Win+Shift+S" >&2; exit 1; }

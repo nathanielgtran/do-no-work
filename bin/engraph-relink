@@ -1,0 +1,38 @@
+#!/bin/bash
+# Rebuild the combined engraph vault as hardlinks of *.md from multiple real source
+# roots that can't share a parent. Hardlinks share the inode, so content edits to a
+# source file are reflected in the vault automatically; only new/deleted files need a
+# relink (run this script), which engraph then picks up on its next index/reconcile.
+#
+# Sources are flattened into one subdir each to avoid name collisions and keep the two
+# note-sets visually separate inside the vault. Archive/output bulk is skipped.
+set -euo pipefail
+
+VAULT="$HOME/engraph-vault"
+
+declare -A SRC=(
+  ["memory"]="$HOME/.claude/projects/${HOME//\//-}-Github/memory"
+  ["personal-kb"]="$HOME/Github/personal-kb"
+)
+
+linked=0
+for name in "${!SRC[@]}"; do
+  src="${SRC[$name]}"
+  dst="$VAULT/$name"
+  [ -d "$src" ] || { echo "skip $name: source missing ($src)"; continue; }
+  mkdir -p "$dst"
+  # Deleting the vault copy leaves the source intact: both are links to one inode.
+  find "$dst" -type f -name '*.md' -delete
+  while IFS= read -r -d '' f; do
+    rel="${f#"$src"/}"
+    mkdir -p "$dst/$(dirname "$rel")"
+    ln -f "$f" "$dst/$rel"
+    linked=$((linked + 1))
+  done < <(find "$src" -type d -name '.*' -prune -o \
+             -type f -name '*.md' \
+             -not -iname '*archive*' \
+             -not -path '*/output/*' \
+             -print0)
+done
+
+echo "relinked $linked markdown files into $VAULT"

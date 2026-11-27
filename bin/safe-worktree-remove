@@ -1,0 +1,79 @@
+#!/bin/bash
+# Remove a git worktree only when nothing is using it.
+#
+# Usage: safe-worktree-remove <worktree-path> [--branch]
+#   --branch  also delete the worktree's local branch (only when its work is
+#             merged or pushed, per the same checks below)
+#
+# Refuses (exit 1) when the worktree:
+#   - is the main checkout, or not a registered worktree
+#   - is locked
+#   - has uncommitted or untracked changes
+#   - has commits not on its upstream, not on origin's default branch, and
+#     not in a merged GitHub PR
+#   - is the cwd of any running process (another session, a shell, an agent)
+# Never passes --force to git.
+set -euo pipefail
+
+die() { echo "safe-worktree-remove: $*" >&2; exit 1; }
+
+[ $# -ge 1 ] || die "usage: safe-worktree-remove <worktree-path> [--branch]"
+target=$(cd "$1" 2>/dev/null && pwd -P) || die "no such directory: $1"
+delete_branch=false
+[ "${2:-}" = "--branch" ] && delete_branch=true
+cd /  # never count this script's own cwd as a user of the worktree
+
+git_dir=$(git -C "$target" rev-parse --absolute-git-dir 2>/dev/null) || die "not a git worktree: $target"
+common_dir=$(cd "$(git -C "$target" rev-parse --path-format=absolute --git-common-dir)" && pwd -P)
+[ "$git_dir" != "$common_dir" ] || die "refusing: $target is the main checkout"
+top=$(git -C "$target" rev-parse --show-toplevel)
+[ "$(cd "$top" && pwd -P)" = "$target" ] || die "pass the worktree root, not a subdirectory"
+
+main_repo=$(dirname "$common_dir")
+if git -C "$main_repo" worktree list --porcelain | awk -v t="$target" \
+    '$1=="worktree"{cur=$2} $1=="locked" && cur==t{found=1} END{exit !found}'; then
+  die "refusing: $target is locked"
+fi
+
+[ -z "$(git -C "$target" status --porcelain)" ] || die "refusing: uncommitted or untracked changes in $target"
+
+branch=$(git -C "$target" symbolic-ref --quiet --short HEAD || true)
+
+work_is_safe() {
+  if git -C "$target" rev-parse --abbrev-ref '@{u}' >/dev/null 2>&1 \
+      && [ -z "$(git -C "$target" log --oneline '@{u}..HEAD')" ]; then
+    return 0
+  fi
+  local default
+  default=$(git -C "$target" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null || true)
+  if [ -n "$default" ] && [ -z "$(git -C "$target" log --oneline "$default..HEAD")" ]; then
+    return 0
+  fi
+  # Nothing beyond what the main checkout already has (covers repos with no origin).
+  if [ -z "$(git -C "$target" log --oneline "$(git -C "$main_repo" rev-parse HEAD)..HEAD")" ]; then
+    return 0
+  fi
+  [ -n "$branch" ] && command -v gh >/dev/null 2>&1 || return 1
+  [ -n "$(cd "$target" && gh pr list --head "$branch" --state merged --json number -q '.[0].number' 2>/dev/null)" ]
+}
+work_is_safe || die "refusing: ${branch:-HEAD} has commits that are not pushed, not on the default branch, and not in a merged PR"
+
+users=""
+if [ -d /proc/self ]; then
+  for p in /proc/[0-9]*; do
+    cwd=$(readlink "$p/cwd" 2>/dev/null) || continue
+    case "$cwd/" in "$target"/*) users+=" ${p#/proc/}($(tr -d '\0' < "$p/comm" 2>/dev/null))";; esac
+  done
+elif command -v lsof >/dev/null 2>&1; then
+  users=$(lsof -a -d cwd -Fpcn 2>/dev/null | awk -v t="$target" \
+    '/^p/{pid=substr($0,2)} /^c/{cmd=substr($0,2)} /^n/{n=substr($0,2); if (n==t || index(n, t"/")==1) printf " %s(%s)", pid, cmd}')
+else
+  die "cannot check for processes using $target (no /proc, no lsof)"
+fi
+[ -z "$users" ] || die "refusing: in use by process(es):$users"
+
+git -C "$main_repo" worktree remove "$target"
+echo "removed worktree $target"
+if $delete_branch && [ -n "$branch" ]; then
+  git -C "$main_repo" branch -D "$branch"
+fi

@@ -1,0 +1,29 @@
+#!/bin/bash
+# Run real chrome-devtools-mcp only in UI repos (incl. worktrees); else a tiny no-tool MCP stub.
+# Set CHROME_MCP_REPO_GLOB (case pattern) to your UI repo paths; CHROME_BIN optional.
+case "$PWD" in
+  ${CHROME_MCP_REPO_GLOB:-$HOME/Github/*-ui*})
+    exec chrome-devtools-mcp --no-usage-statistics --headless=true --isolated=true \
+      ${CHROME_BIN:+--executablePath=$CHROME_BIN} \
+      --chromeArg=--no-sandbox --chromeArg=--disable-dev-shm-usage --chromeArg=--disable-gpu "$@"
+    ;;
+esac
+
+id_re='"id"[[:space:]]*:[[:space:]]*("[^"]*"|-?[0-9]+)'
+method_re='"method"[[:space:]]*:[[:space:]]*"([^"]*)"'
+proto_re='"protocolVersion"[[:space:]]*:[[:space:]]*"([^"]*)"'
+while IFS= read -r line || [ -n "$line" ]; do
+  [[ $line =~ $id_re ]] || continue
+  id="${BASH_REMATCH[1]}"
+  method=""
+  [[ $line =~ $method_re ]] && method="${BASH_REMATCH[1]}"
+  case "$method" in
+    initialize)
+      pv="2025-06-18"
+      [[ $line =~ $proto_re ]] && pv="${BASH_REMATCH[1]}"
+      printf '{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":"%s","capabilities":{"tools":{}},"serverInfo":{"name":"chrome-devtools-off","version":"0"}}}\n' "$id" "$pv" ;;
+    tools/list) printf '{"jsonrpc":"2.0","id":%s,"result":{"tools":[]}}\n' "$id" ;;
+    ping) printf '{"jsonrpc":"2.0","id":%s,"result":{}}\n' "$id" ;;
+    *) printf '{"jsonrpc":"2.0","id":%s,"error":{"code":-32601,"message":"Method not found"}}\n' "$id" ;;
+  esac
+done

@@ -1,0 +1,111 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/autonomy-gate.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/gate-self-merge.sh",
+            "if": "Bash(gh pr merge:*)"
+          },
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/openspec-autonomy.sh"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/autonomy-toggle.sh"
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -x ~/.claude/hooks/claude-notify.sh ] && ~/.claude/hooks/claude-notify.sh; exit 0",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "matcher": "idle_prompt",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -x ~/.claude/hooks/claude-notify.sh ] && ~/.claude/hooks/claude-notify.sh; exit 0",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -x ~/.claude/hooks/compact-reinject.sh ] && ~/.claude/hooks/compact-reinject.sh; exit 0",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/session-context.sh",
+            "timeout": 5,
+            "statusMessage": "Checking session context..."
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.command' | { read -r cmd; echo \"$cmd\" | grep -q 'gh pr create' && echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"A PR was just created. Automatically spawn a sub-agent to review the PR changes — the review sub-agent MUST use model sonnet (Agent tool with model: sonnet). Run git diff against the base branch. Review for: bugs, security issues, missing tests, code quality problems, and CLAUDE.md rule compliance. Present a concise review summary to the user. If the review passes (no must-fix issues), apply the REVIEWED label: gh pr edit --add-label REVIEWED. If issues are found, fix them, push fix commits, then re-review and apply the label only once all issues are resolved. After applying the label, do NOT merge immediately — first wait for CI to pass: run gh pr checks <pr-number> --watch --fail-fast and only once the ci check is green, merge with gh pr merge --squash --delete-branch. If CI fails, fix the issues, push, and re-check; never merge a red PR.\"}}' || true; }",
+            "statusMessage": "Checking for PR creation..."
+          },
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.command' | { read -r cmd; echo \"$cmd\" | grep -q 'gh pr merge' && { pr=$(echo \"$cmd\" | grep -oP 'gh pr merge \\K[0-9]+' || true); if [ -n \"$pr\" ]; then ~/.claude/skills/backlog/flip-todo-on-merge.sh \"$pr\"; else ~/.claude/skills/backlog/flip-todo-on-merge.sh; fi; }; true; }",
+            "statusMessage": "Flipping merged TODO..."
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/go-check.sh",
+            "timeout": 120,
+            "statusMessage": "Running Go tests + lint..."
+          }
+        ]
+      }
+    ]
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "~/.local/bin/pstack-budget-statusline"
+  }
+}

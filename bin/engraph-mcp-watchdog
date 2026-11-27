@@ -1,0 +1,31 @@
+#!/bin/bash
+# Health check for engraph-mcp: real MCP initialize + tools/list, plus child check.
+# On failure, log to journal and restart the service.
+U=http://127.0.0.1:8765/mcp
+H=(-H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream')
+log() { logger -t engraph-mcp-watchdog "$*"; echo "$*"; }
+
+restart() {
+  log "UNHEALTHY: $1 -- restarting engraph-mcp"
+  systemctl --user restart engraph-mcp
+  exit 0
+}
+
+systemctl --user is-active --quiet engraph-mcp || exit 0   # stopped on purpose
+
+main=$(systemctl --user show -p MainPID --value engraph-mcp)
+[ "$main" -gt 0 ] 2>/dev/null || restart "no main pid"
+pgrep -x -P "$main" engraph >/dev/null || restart "no engraph child of mcp-proxy $main"
+
+hdr=$(mktemp); trap 'rm -f "$hdr"' EXIT
+curl -sS -m 10 -D "$hdr" -o /dev/null "${H[@]}" -X POST "$U" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"watchdog","version":"1"}}}' \
+  || restart "initialize failed"
+sid=$(awk 'tolower($1)=="mcp-session-id:"{print $2}' "$hdr" | tr -d '\r')
+[ -n "$sid" ] || restart "no session id"
+curl -sS -m 5 -o /dev/null "${H[@]}" -H "mcp-session-id: $sid" -X POST "$U" \
+  -d '{"jsonrpc":"2.0","method":"notifications/initialized"}' || restart "initialized failed"
+out=$(curl -sS -m 10 "${H[@]}" -H "mcp-session-id: $sid" -X POST "$U" \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/list"}') || restart "tools/list failed"
+echo "$out" | grep -q '"tools"' || restart "tools/list bad response"
+curl -sS -m 5 -o /dev/null -X DELETE "${H[@]}" -H "mcp-session-id: $sid" "$U" || true

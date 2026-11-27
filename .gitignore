@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+*.bak*
+*.pre-dotfiles.*
+.claude/settings.local.json
+.claude/HANDOFF.md

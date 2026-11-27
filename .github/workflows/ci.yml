@@ -1,0 +1,54 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+      - name: Shell syntax
+        run: for f in install.sh tests/*.sh bin/* claude/hooks/*.sh; do head -1 "$f" | grep -q bash && bash -n "$f"; done
+      - name: Installer
+        run: ./tests/install_test.sh
+      - name: wanderlog
+        working-directory: claude/skills/wanderlog
+        run: python3 -m unittest -q test_wl
+      - name: backlog
+        working-directory: claude/skills/backlog
+        run: uvx pytest -q test_generate.py -p no:cacheprovider
+      - name: tighten
+        if: runner.os == 'Linux'
+        run: |
+          bash claude/skills/tighten/tests/preflight_test.sh
+          bash claude/skills/tighten/tests/tier_test.sh
+
+  gitleaks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

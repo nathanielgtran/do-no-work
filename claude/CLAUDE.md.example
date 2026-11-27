@@ -1,0 +1,59 @@
+# Claude Code Instructions
+
+Assisting <NAME>, <ROLE>. Machines: WSL Ubuntu or macOS; machine details in `~/CLAUDE-reference.md`. Dates day-first (2 Sep, 9/9/2026). Terse, real sentences, no LLM voice, no emojis in code/commits.
+
+## Context
+- First message of a conversation: read `~/Github/personal-kb/daily-log.md`, `todo.md`, `notes.md`; summarise last workday, active todos, blockers; ask about meetings and 2-3 goals; note goals in daily-log under `### goals`. Skip if personal-kb is missing.
+- Check `~/Github/personal-kb/` (via `mcp__engraph__search "<intent>"` first) BEFORE asking me for account IDs, env URLs, past work, known issues. Verify a hit still exists before acting on it.
+- After editing a memory or personal-kb file, run `engraph-enqueue <path>...`. Never call `mcp__engraph__reindex_file` directly (calls stack and time out on a single-threaded server).
+- Cross-repo work: read `~/Github/REPOS.md` first (stack, test/lint commands, ports, deps). Per-repo tasks live in that repo's `TODO.md`, read on demand.
+- On entering a repo/worktree, read `.claude/HANDOFF.md` if present; git log/status wins on conflict. `PLAN.md` `## Current State` is repo-level only (3 lines: phase, next, blocked).
+
+## Hard rules
+- Git: never push to main/master, never merge without a PR, never add Claude as co-author or a "Generated with" footer. New branch before any work. Squash before merge. Commits `[TICKET-123] type: description`, branches `TICKET-123-description`. Maintain `CHANGELOG.md` with IDs `type-N`.
+- Merge only with `REVIEWED` label + green CI; the post-`gh pr create` hook runs the review. Never merge red.
+- Credentials: never commit them; all live in `pass personal/<name>` (list in reference). Non-interactive `pass` hangs on pinentry, so ask me to run it via `!`.
+- Never edit Claude Code settings files (settings.json, settings.local.json). CLAUDE.md files may be edited freely.
+- Never `rm`; macOS `trash <path>`, WSL PowerShell Recycle Bin. Scripts use `#!/bin/bash`.
+- Email: never send without showing the full draft (to/from/subject/body) and getting a per-message go-ahead. No batching.
+- Deleting data, anything the spec can't express, ambiguous intent: ask, don't guess.
+- Enforced elsewhere, don't restate: deny rules (rm, sudo, push main/master, `--admin` merge, hooks/ and autonomy-level edits), `autonomy-gate.sh` ("go less" blocks push + merge, "go full" restores), `gate-self-merge.sh`, `openspec-autonomy.sh`, gitleaks pre-commit, `go-check.sh`.
+
+## Worktrees
+Implement in a dedicated worktree, never my primary checkout (I edit it live): `git worktree add ../<repo>-<task> -b <branch>`, work, push + PR from there, then remove. Shared checkout OK only for read-only inspection or a trivial single-file edit committed immediately. Use `isolation: "worktree"` on implementation agents. Uncommitted changes you didn't make are mine: stop, isolate yours, never commit or revert mine.
+
+## Code and PRs
+- Max 50-line functions, complexity 10, no 3+ nesting. Never swallow errors. Early returns. TS strict, no `any`.
+- No hacks: no workaround, symptom guard, retry, clamp or fallback that hides a bug. Fix the first place it goes wrong; if that is out of scope, land the smallest honest fix and report the rest open.
+- Comments: default none. Keep only license headers, public API doc comments, constraints forced by something we can't change (vendor, platform, protocol; link it), and suppressions with a reason. No narration, banners, commented-out code, or prose explaining our own surprising code: rename, extract or type it instead. Delete these when touching a file.
+- Lint/typecheck before committing. TDD for new features; test behaviour not implementation. Every PR includes tests.
+- Before a PR: tests, CHANGELOG, TODO, PLAN current state, README if new scripts/commands/endpoints.
+- PR bodies follow the fleet template (your org `.github` `PULL_REQUEST_TEMPLATE.md`): `## What`, `## Why`, `## Proof`, `## Risk + rollback`, `## Checklist`. Proof = pasted test/run output or screenshot link, never "tested locally". CI `pr-template` check enforces it.
+- UI or behaviour changes: prove with a screenshot, test or run output, not a claim.
+- On a correction, fix at the highest level that works: architecture/API > types > lint/CI > test > prose last. A second occurrence is a class: encode a check that fails on a real past instance, and clean old instances. No suppressions (`eslint-disable`, `noqa`, `nolint`, `any`) without an inline reason. Once a rule is enforced, shrink its prose to a pointer.
+
+## Agents
+- Plan non-trivial work (>3 files) with Opus, implement with Sonnet. Sub-agents default to sonnet (haiku for simple grep/read). Use them for broad search, PR review, research >50 lines; not for single-file reads or work that depends on the current result.
+- Parallel fan-out agents: targeted tests only, commit + push first.
+
+## Autonomy
+Broad: build, test, lint, push branches, open PRs freely. Approving a plan (ExitPlanMode or PLAN.md) pre-satisfies plan-first/per-file confirms within its scope; it does not loosen any hard rule or the merge condition.
+- **OpenSpec repos** (`openspec/config.yaml`): work end-to-end without asking (worktree, implement, test, push, PR) provided: (1) change first in `openspec/changes/<id>/` (proposal, tasks, spec deltas, design if non-trivial); (2) `openspec validate <id> --strict` clean BEFORE code, code stays in scope (scope grows: update change, re-validate); (3) tick tasks, tests + CHANGELOG/TODO/PLAN, re-validate before PR; (4) archive only via the repo's release flow or when told; never hand-edit `openspec/specs/` outside a change.
+- **<repo>** (opt-in per repo): releases and prod deploys autonomous (tag + `gh release create`) once merged work is green on main. Other repos: ask before GitHub releases or prod deploys.
+
+## Workflows
+- Ticket ID mentioned: fetch via your ticket-tracker MCP, search daily-log + notes, check branches, summarise, wait.
+- "meeting notes" / transcript: executive brief per reference. "standup": read daily-log + notes, grouped format per reference. "EOD": run `/log`, then sync tickets.
+- New context learned (PR merged, issue, contact): update the matching personal-kb file (mapping in reference). Daily-log: archive entries older than 3 days, keep ~200 lines.
+
+## UI/UX
+Any change to how something looks, feels or moves:
+1. Read the repo's `DESIGN.md` / `PRODUCT.md` / `design/refs/` first; else `~/Github/personal-kb/reference/design-language.md`. Project files win.
+2. `impeccable` is the one taste skill (critique/audit, polish/quieter/distill/layout/typeset, shape for new surfaces). Never `impeccable hooks on`. No stacking taste-skill or frontend-design.
+3. Motion: Emil skills. Ignore their prefers-reduced-motion advice; sites always animate.
+4. Verify in chrome-devtools MCP, mobile 390px first then desktop; before/after screenshots; one fix batch, one confirm round.
+5. `ui-ux-pro-max` is a lookup checklist (a11y, contrast, spacing), not the authority.
+Big direction change: 2-3 directions side by side, I pick. `magic` MCP only for React components.
+
+## Pre-commit
+Install if `.pre-commit-config.yaml` exists.

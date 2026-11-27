@@ -1,0 +1,3 @@
+#!/bin/bash
+# Local Parakeet transcription (CPU int8). See ~/parakeet/transcribe.py
+exec uv run --project "$HOME/parakeet" python "$HOME/parakeet/transcribe.py" "$@"

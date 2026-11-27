@@ -1,0 +1,29 @@
+#!/bin/bash
+# Nightly: relink vault, reindex via CLI, alert on file-count drift.
+# engraph-mcp is stopped for the duration: the CLI can't index while serve holds the
+# DB lock, and relinking under a live server makes its watcher re-embed everything.
+set -uo pipefail
+VAULT="$HOME/engraph-vault"
+log() { logger -t engraph-nightly-index -p "${2:-user.info}" "$1"; echo "$1"; }
+
+was_active=0
+# is-enabled, not is-active: at boot the timer catch-up can race the server start.
+if systemctl --user is-enabled --quiet engraph-mcp; then
+  was_active=1
+  systemctl --user stop engraph-mcp
+fi
+restore() { [ "$was_active" = 1 ] && systemctl --user start engraph-mcp; }
+trap restore EXIT
+
+start=$(date +%s)
+"$HOME/.local/bin/engraph-relink" || { log "relink failed" user.err; exit 1; }
+nice -n 10 "$HOME/.local/bin/engraph" index "$VAULT" || { log "engraph index failed" user.err; exit 1; }
+
+indexed=$("$HOME/.local/bin/engraph" status --json | python3 -c 'import sys,json;print(json.load(sys.stdin)["files"])')
+actual=$(find "$VAULT" -type f -name '*.md' -not -path '*/.obsidian/*' | wc -l)
+diff=$(( indexed > actual ? indexed - actual : actual - indexed ))
+log "indexed=$indexed fs=$actual diff=$diff secs=$(( $(date +%s) - start ))"
+if [ "$diff" -gt 1 ]; then
+  log "WARNING: engraph index drift: indexed=$indexed fs=$actual" user.warning
+  exit 2
+fi
