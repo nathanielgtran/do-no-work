@@ -213,7 +213,7 @@ resolve_runs_on() {
   fi
   labels=$(jq -r '[.runners[]?.labels[]?.name] | unique | .[]' <<<"$out") || die "failed to parse runners"
   specific=$(grep '^nuc-' <<<"$labels" || true)
-  if [ -n "$specific" ] && [ "$(wc -l <<<"$specific")" = 1 ]; then
+  if [ "$(grep -c '^nuc-' <<<"$labels" || true)" = 1 ]; then
     RUNS_ON_JSON="[\"self-hosted\",\"$specific\"]"
   elif grep -qx nuc <<<"$labels"; then
     RUNS_ON_JSON='["self-hosted","nuc"]'
