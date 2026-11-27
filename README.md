@@ -100,6 +100,26 @@ cd $HOME\Github\do-no-work; powershell -ExecutionPolicy Bypass -File .\install.p
 - **Settings** are never touched: merge `hooks`, `permissions` and `statusLine` from [`claude/settings.example.json`](claude/settings.example.json) into `~/.claude/settings.json` yourself.
 - **Non-interactive installs** need `GIT_NAME` and `GIT_EMAIL` set.
 
+### Personal overlay
+
+The repo ships generic versions of some tools (a `/hc` that needs `$HOMESERVER`, a `call` skill without a name list). To keep private versions that never enter the repo, put them in the overlay, which mirrors repo paths:
+
+```
+~/.config/do-no-work/overlay/
+  claude/commands/hc.md          replaces the repo command
+  claude/skills/call/SKILL.md    replaces that file; the skill's other files still come from the repo
+  bin/mytool                     overlay-only files are installed too
+  home/bashrc.d/local.sh         becomes ~/.config/dotfiles/local.sh
+```
+
+Set `DOTFILES_OVERLAY` to use another root. `install.sh` and `dnw-doctor` both read the overlay, so reruns keep your versions and the doctor reports `ok overlay N files`. If the first install already replaced your personal files, they are in the backup it made; copy the ones that differ from the repo into the overlay with:
+
+```bash
+./install.sh --seed-overlay-from ~/.dotfiles-backup/<timestamp>   # or --seed-overlay to read from $HOME
+```
+
+Seeding never overwrites an existing overlay file and does not install anything.
+
 ### New repo
 
 Apply the fleet defaults (Actions lockdown, squash-only merges, secret scanning, `REVIEWED` label, `protect-main` ruleset) to an existing GitHub repo. It is idempotent; `--dry-run` prints the calls without making them.

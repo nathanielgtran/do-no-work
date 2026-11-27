@@ -1,0 +1,1 @@
+Personal overlay (`$DOTFILES_OVERLAY`, default `~/.config/do-no-work/overlay`): private versions of repo files that replace the repo copy on install, a third `origin` column in `install-manifest.sh`, `install.sh --seed-overlay[-from DIR]`, and `dnw-doctor` overlay reporting
