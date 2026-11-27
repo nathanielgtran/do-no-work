@@ -36,6 +36,15 @@
             "command": "bash ~/.claude/hooks/openspec-autonomy.sh"
           }
         ]
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/protect-lint-config.sh"
+          }
+        ]
       }
     ],
     "UserPromptSubmit": [
@@ -120,10 +129,48 @@
           }
         ]
       }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/stop-gate.sh",
+            "timeout": 150,
+            "statusMessage": "Running done gate..."
+          }
+        ]
+      }
     ]
   },
   "statusLine": {
     "type": "command",
     "command": "~/.local/bin/pstack-budget-statusline"
+  },
+  "sandbox": {
+    "enabled": true,
+    "filesystem": {
+      "denyRead": [
+        "~/.password-store",
+        "~/.gnupg",
+        "~/.ssh"
+      ]
+    },
+    "network": {
+      "strictAllowlist": true,
+      "allowedDomains": [
+        "github.com",
+        "registry.npmjs.org",
+        "pypi.org",
+        "<your-internal-registry>.example.com"
+      ]
+    }
+  },
+  "autoMode": {
+    "environment": [
+      "$defaults",
+      "My home server at homeserver.local",
+      "Source control: repos under github.com/<you>/"
+    ]
   }
 }

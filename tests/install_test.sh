@@ -12,6 +12,7 @@ run_mode() {
     HOME="$home" DOTFILES_SKIP_UPSTREAM=1 "$REPO/install.sh" --no-deps $mode >/dev/null
   echo "-- mode: ${mode:-link}"
   check "hook installed"        "[ -e '$home/.claude/hooks/autonomy-gate.sh' ]"
+  check "agent installed"       "[ -e '$home/.claude/agents/reviewer.md' ]"
   check "command installed"     "[ -e '$home/.claude/commands/log.md' ]"
   check "skill installed"       "[ -e '$home/.claude/skills/tighten/SKILL.md' ]"
   check "bin script installed"  "[ -x '$home/.local/bin/safe-worktree-remove' ]"
