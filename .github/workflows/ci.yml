@@ -27,43 +27,14 @@ jobs:
       - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
       - name: Shell syntax
         run: for f in install.sh tests/*.sh bin/* claude/hooks/*.sh; do head -1 "$f" | grep -q bash && bash -n "$f"; done
-      - name: Hook decisions
-        run: ./tests/hooks_test.sh
-      - name: repo-bootstrap
-        run: ./tests/bootstrap_test.sh
-      - name: ci-wait
-        run: ./tests/ci_wait_test.sh
-      - name: Installer
-        run: ./tests/install_test.sh
-      - name: wanderlog
-        working-directory: claude/skills/wanderlog
-        run: python3 -m unittest -q test_wl
-      - name: backlog
-        working-directory: claude/skills/backlog
-        run: uvx pytest -q test_generate.py -p no:cacheprovider
-      - name: tighten
-        if: runner.os == 'Linux'
-        run: |
-          bash claude/skills/tighten/tests/preflight_test.sh
-          bash claude/skills/tighten/tests/tier_test.sh
-      - name: Claude review verdict
-        run: ./tests/claude_review_verdict_test.sh
-      - name: Research hooks
-        run: ./tests/research_hooks_test.sh
+      - name: Tests
+        run: ./tests/run-all.sh
       - name: Public safety
         env:
           PUBLIC_SAFETY_DENY_LIST: ${{ secrets.PUBLIC_SAFETY_DENY_LIST }}
-        run: |
-          ./tests/public_safety_test.sh
-          ./scripts/public-safety-check.sh
+        run: ./scripts/public-safety-check.sh
       - name: Changelog fragments
-        run: |
-          ./scripts/changelog.sh check
-          ./tests/changelog_test.sh
-      - name: Review rollout
-        run: ./tests/review_test.sh
-      - name: dnw-doctor
-        run: ./tests/doctor_test.sh
+        run: ./scripts/changelog.sh check
 
   windows:
     runs-on: windows-latest
