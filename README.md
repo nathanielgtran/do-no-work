@@ -6,6 +6,8 @@ Built by Nathaniel Tran. See more of my work at **[ngtran.dev](https://ngtran.de
 
 It includes hooks, slash commands, skills, a `CLAUDE.md` template, the CLI scripts I use daily, and shell/git config. There is one installer for macOS/Linux/WSL and one for Windows.
 
+**[Full catalogue of hooks, commands, skills and scripts](docs/REFERENCE.md)**. Each entry says what it does, when it runs, how to disable it, and links its source. Research notes behind the setup: [docs/workflow-research.md](docs/workflow-research.md).
+
 - [The workflow](#the-workflow)
 - [Guardrails](#guardrails)
 - [autobuild: hands-off feature loop](#autobuild-hands-off-feature-loop)
@@ -16,23 +18,10 @@ It includes hooks, slash commands, skills, a `CLAUDE.md` template, the CLI scrip
 
 Every change goes the same way: plan, isolate, prove, review, merge. Each step leaves evidence the next one checks. Hooks enforce the steps; nobody has to remember them.
 
-```mermaid
-flowchart LR
-    A([Session start]) --> B[session-context hook<br/>loads daily log, todo,<br/>repo HANDOFF]
-    B --> C{Non-trivial?<br/>more than 3 files}
-    C -- yes --> D[Plan<br/>OpenSpec change or PLAN.md]
-    C -- no --> E
-    D --> E[Worktree + branch<br/>never the primary checkout]
-    E --> F[TDD<br/>failing test, code, green]
-    F --> G[Lint + typecheck<br/>gitleaks pre-commit]
-    G --> H[Push + PR<br/>What / Why / Proof /<br/>Risk + rollback]
-    H --> I[Review<br/>post-PR hook or reviewer agent]
-    I --> J{REVIEWED label<br/>and CI green?}
-    J -- no --> F
-    J -- yes --> K[gate-self-merge<br/>allows squash merge]
-    K --> L[Release / deploy<br/>where the repo allows it]
-    L --> M["/log<br/>daily log, CHANGELOG,<br/>HANDOFF, memory"]
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/workflow-dark.svg">
+  <img src="docs/diagrams/workflow.svg" alt="Workflow: session start, plan, worktree, build, push and PR, CI and Claude review, gate-self-merge, squash merge, release, log, with a fix loop on a blocked review">
+</picture>
 
 The rules behind it live in [`claude/CLAUDE.md.example`](claude/CLAUDE.md.example). The short version:
 
@@ -40,6 +29,10 @@ The rules behind it live in [`claude/CLAUDE.md.example`](claude/CLAUDE.md.exampl
 - **Mistakes become rules.** When a correction happens a second time, encode a check (lint, test, hook) that fails on the real past instance. Prose is the last resort.
 - **Comments default to none.** Rename, extract or type the code instead of explaining it.
 - **Proof, not claims.** PR bodies carry pasted test output or screenshots, never "tested locally".
+
+### PR format
+
+PR bodies follow the fleet template, [`PULL_REQUEST_TEMPLATE.md`](https://github.com/nathanielgtran/.github/blob/main/PULL_REQUEST_TEMPLATE.md): `## What`, `## Why`, `## Proof`, `## Risk + rollback`, `## Checklist`. Proof is pasted test or run output, never "tested locally". The [`CLAUDE.md` template](claude/CLAUDE.md.example) enforces it for the agent, and the `pr-template` check in the fleet repos enforces it in CI.
 
 ### Changelog
 
@@ -49,19 +42,10 @@ PRs never edit `CHANGELOG.md`, so parallel PRs can't conflict there. Each PR add
 
 Every Bash call the agent makes passes through the hooks before it runs. The strictest decision wins: deny, then ask, then allow.
 
-```mermaid
-flowchart TD
-    T[Agent wants to run a Bash command] --> G1{autonomy-gate}
-    G1 -- writes to hooks or<br/>the autonomy dial --> X1[DENY]
-    G1 -- push or merge while<br/>dial = less --> X1
-    G1 -- otherwise --> G2{gate-self-merge<br/>gh pr merge only}
-    G2 -- more than one merge,<br/>cd / -C, no REVIEWED,<br/>red or pending CI --> Q[ASK the human]
-    G2 -- REVIEWED + all green --> OK[ALLOW]
-    G2 -- not a merge --> G3{openspec-autonomy}
-    G3 -- OpenSpec repo, dial = full,<br/>allowlisted verbs only,<br/>no pipes or substitution --> OK
-    G3 -- anything else --> P[Normal permission prompt]
-    D[(settings.json deny rules<br/>rm, sudo, push main,<br/>--admin, hook edits)] -. always win .-> X1
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/guardrails-dark.svg">
+  <img src="docs/diagrams/guardrails.svg" alt="Guardrails: a Bash command passes autonomy-gate, gate-self-merge and openspec-autonomy; deny rules always win; outcomes are deny, ask, allow or the normal prompt">
+</picture>
 
 The tamper guard inspects write targets (redirects, cp/mv/tee/sed -i operands and similar), so reading or merely mentioning those paths passes; a literal `$HOME/.claude/...` target is still denied.
 
@@ -80,22 +64,10 @@ Sandbox, `autoMode.environment` and worktree examples are in [`claude/settings.e
 
 Use [`claude/skills/autobuild`](claude/skills/autobuild/SKILL.md) when you'd rather the agent decide what to build. It scouts the repo, picks up to three features, and builds them in parallel worktrees. You review and merge one PR at a time.
 
-```mermaid
-flowchart LR
-    S[Scout<br/>git log, issues, TODO,<br/>unused data, manual steps] --> P[Pick ≤ 3<br/>independent features]
-    P --> W[Cut worktrees<br/>from origin/main<br/>assign CHANGELOG IDs]
-    W --> B1[Agent 1<br/>spec, TDD, PR]
-    W --> B2[Agent 2<br/>spec, TDD, PR]
-    W --> B3[Agent 3<br/>spec, TDD, PR]
-    B1 & B2 & B3 --> R[Review each PR<br/>smallest blast radius first]
-    R --> C{CI green?}
-    C -- no --> R
-    C -- yes --> M[Label, then merge<br/>separate calls]
-    M --> RB[Rebase next PR]
-    RB --> R
-    M --> V[Verify live<br/>read-only, real data]
-    V --> L[Log + report]
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/autobuild-dark.svg">
+  <img src="docs/diagrams/autobuild.svg" alt="autobuild: preconditions, scout, pick up to three features, set up worktrees, build in parallel, review, wait for CI, label and merge, verify live, log">
+</picture>
 
 ## Install
 
@@ -115,16 +87,10 @@ git clone https://github.com/nathanielgtran/do-no-work $HOME\Github\do-no-work  
 cd $HOME\Github\do-no-work; powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```
 
-```mermaid
-flowchart LR
-    W[install.ps1] -->|winget: git, gh, jq, node,<br/>uv, gitleaks, oh-my-posh| GB[Git Bash]
-    GB --> I
-    U[macOS / Linux / WSL] --> I[install.sh]
-    I --> H[home/: gitconfig, shell rc,<br/>prompt theme]
-    I --> BN[bin/ → ~/.local/bin]
-    I --> CL[claude/ → ~/.claude<br/>hooks, commands, skills]
-    I --> UP[skills-upstream.txt<br/>npx skills add -g]
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/install-dark.svg">
+  <img src="docs/diagrams/install.svg" alt="Install map: install.ps1 and install.sh place home config, bin scripts, Claude config, upstream skills and dependencies; settings merge and the diagram-design plugin are manual">
+</picture>
 
 - **Windows** runs `install.sh --copy` through Git Bash. Claude Code on Windows runs hooks through Git Bash as well, so the bash hooks work unchanged.
 - **macOS** gets the shell config in both `~/.zshrc` and `~/.bash_profile`.
@@ -156,18 +122,25 @@ The token is read from the environment and piped to `gh secret set` on stdin; wi
 
 | Path | What |
 |---|---|
-| `claude/hooks/` | `autonomy-gate` + `autonomy-toggle` (push/merge kill switch), `gate-self-merge` (merge only with REVIEWED + green CI), `openspec-autonomy`, `go-check` (go test/vet/lint on the edited package), `stop-gate` (done gate on Stop), `protect-lint-config` (ask before lint/type config edits), `session-context` (loads daily log/todo at start), `compact-reinject`, `claude-notify` (Discord DM on permission prompts) |
+| `claude/hooks/` | `autonomy-gate` + `autonomy-toggle` (push/merge kill switch), `gate-self-merge` (merge only with REVIEWED + green CI), `openspec-autonomy`, `go-check` (go test/vet/lint on the edited package), `stop-gate` (done gate on Stop), `protect-lint-config` (ask before lint/type config edits), `session-context` (loads daily log/todo at start), `compact-reinject`, `claude-notify` (Discord DM on permission prompts and idle) |
 | `claude/agents/` | `reviewer` (read-only review subagent: bugs, security, missing tests, ends with `VERDICT: PASS` or `BLOCK`) |
 | `claude/commands/` | `/log`, `/prune`, `/test`, `/review-pr`, `/deploy`, `/hc`, `/rollback` (the last three expect `$HOMESERVER=user@host`) |
 | `claude/skills/` | `autobuild` (hands-off feature loop), `tighten` (post-PR simplify + fix), `backlog` (cross-repo TODO + issue rollup), `call` (call recording to notes), `wanderlog` (Wanderlog trip API) |
 | `claude/CLAUDE.md.example` | Global instructions template, copied to `~/CLAUDE.md` if you have none |
 | `bin/` | `pstack-budget-statusline` (5h/7d plan usage in the statusline, picks a model budget tier), `safe-worktree-remove` (refuses dirty, unmerged or in-use worktrees), `repo-bootstrap` (fleet GitHub defaults: Actions lockdown, squash-only, protect-main ruleset), `review-rollout` (enable the CI Claude review on repos: allowlist, caller PR, label, secret), `ci-wait` (block until a PR's checks finish, exit 1 on any failure), `dnw-doctor` (read-only drift check of the live install: missing or stale files, unwired settings.json hooks, git identity, shell rc, tools), `transcribe` + `callrec` (local call recording + transcription), `pasteimg`, `chrome-devtools-mcp-gated`, `engraph-*` (engraph knowledge-graph MCP helpers) |
 | `home/` | `gitconfig` (identity in `~/.gitconfig.local`), `gitignore_global`, oh-my-posh theme, `bashrc.d/dotfiles.sh` (brew, PATH, prompt, `pass`-backed secrets) |
-| `skills-upstream.txt` | Third-party skills installed from their own repos, not copied here |
+| `skills-upstream.txt` | Third-party skills installed from their own repos, not copied here, plus a commented list of recommended plugins |
 
 Also installed unless you pass `--no-deps`:
 - npm: `chrome-devtools-mcp`, `@fission-ai/openspec`, `@charmland/crush`
 - uv: `mcp-proxy`, `aider-chat`
+
+Recommended plugin, not automated: [diagram-design](https://github.com/cathrynlavery/diagram-design) (MIT) drew the diagrams above. The sources are in `docs/diagrams/` and the project profile is `.diagram-design`.
+
+```bash
+claude plugin marketplace add cathrynlavery/diagram-design
+claude plugin install diagram-design@diagram-design
+```
 
 Not automated:
 - `bombadil` (UI property testing)

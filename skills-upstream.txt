@@ -5,3 +5,8 @@ nextlevelbuilder/ui-ux-pro-max-skill
 vercel-labs/skills
 cloudflare/skills
 
+
+# plugins (not installed by the installers; run once per machine)
+# diagram-design (MIT, Cathryn Lavery): editorial SVG diagrams. Used for docs/diagrams/.
+#   claude plugin marketplace add cathrynlavery/diagram-design
+#   claude plugin install diagram-design@diagram-design

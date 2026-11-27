@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Guardrails: how a Bash call is decided</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root { --color-paper: #F7F5F2; --color-ink: #2C2C2A; --color-muted: #5C5650; }
+body { font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif; background: var(--color-paper); color: var(--color-ink); min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 3rem 2rem; }
+.frame { max-width: 1000px; width: 100%; }
+.diagram-container { width: 100%; overflow-x: auto; }
+.eyebrow { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace; font-size: 0.66rem; font-weight: 500; letter-spacing: 0.18em; text-transform: uppercase; color: var(--color-muted); margin-bottom: 0.5rem; }
+h1 { font-family: ui-serif, Georgia, 'Times New Roman', serif; font-size: clamp(1.5rem, 2.4vw + 0.75rem, 2rem); font-weight: 400; letter-spacing: -0.02em; line-height: 1.15; margin-bottom: 1.5rem; }
+svg { width: 100%; min-width: 960px; display: block; }
+@media print { .diagram-container { overflow-x: visible; } svg { min-width: 0; } }
+</style>
+</head>
+<body>
+<div class="frame">
+<p class="eyebrow">Guardrails · do no work</p>
+<h1>Guardrails: how a Bash call is decided</h1>
+<div class="diagram-container">
+<svg viewBox="0 0 960 440" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="guardrails-title guardrails-desc">
+<title id="guardrails-title">Guardrails: how a Bash call is decided</title>
+<desc id="guardrails-desc">Decision flow for a Bash command through autonomy-gate, gate-self-merge and openspec-autonomy, with settings deny rules always winning.</desc>
+<defs><marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#5C5650"/></marker><marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#A8482D"/></marker><marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#3B4F5E"/></marker></defs>
+<rect width="100%" height="100%" fill="#F7F5F2"/>
+<line x1="168" y1="202" x2="212" y2="202" stroke="#5C5650" stroke-width="1.2" marker-end="url(#arrow)"/>
+<line x1="360" y1="202" x2="404" y2="202" stroke="#5C5650" stroke-width="1.2" marker-end="url(#arrow)"/>
+<line x1="552" y1="202" x2="596" y2="202" stroke="#5C5650" stroke-width="1.2" marker-end="url(#arrow)"/>
+<line x1="744" y1="202" x2="788" y2="202" stroke="#5C5650" stroke-width="1.2" marker-end="url(#arrow)"/>
+<line x1="286" y1="100" x2="286" y2="164" stroke="#5C5650" stroke-width="1.2" marker-end="url(#arrow)"/>
+<line x1="286" y1="240" x2="286" y2="304" stroke="#5C5650" stroke-width="1.2" marker-end="url(#arrow)"/>
+<line x1="168" y1="342" x2="212" y2="342" stroke="#5C5650" stroke-width="1.2" marker-end="url(#arrow)"/>
+<line x1="478" y1="240" x2="478" y2="304" stroke="#5C5650" stroke-width="1.2" marker-end="url(#arrow)"/>
+<line x1="478" y1="164" x2="478" y2="100" stroke="#3B4F5E" stroke-width="1.2" marker-end="url(#arrow-link)"/>
+<line x1="670" y1="164" x2="670" y2="100" stroke="#3B4F5E" stroke-width="1.2" marker-end="url(#arrow-link)"/>
+<rect x="366" y="184" width="32" height="12" rx="2" fill="#F7F5F2"/><text x="382" y="193" fill="#6E6963" font-size="8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" text-anchor="middle" letter-spacing="0.06em">PASS</text>
+<rect x="554" y="184" width="40" height="12" rx="2" fill="#F7F5F2"/><text x="574" y="193" fill="#6E6963" font-size="8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" text-anchor="middle" letter-spacing="0.06em">OTHER</text>
+<rect x="750" y="184" width="32" height="12" rx="2" fill="#F7F5F2"/><text x="766" y="193" fill="#6E6963" font-size="8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" text-anchor="middle" letter-spacing="0.06em">ELSE</text>
+<rect x="294" y="126" width="40" height="12" rx="2" fill="#F7F5F2"/><text x="314" y="135" fill="#6E6963" font-size="8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" text-anchor="middle" letter-spacing="0.06em">LEVEL</text>
+<rect x="486" y="126" width="60" height="12" rx="2" fill="#F7F5F2"/><text x="516" y="135" fill="#6E6963" font-size="8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" text-anchor="middle" letter-spacing="0.06em">ALL GREEN</text>
+<rect x="678" y="126" width="72" height="12" rx="2" fill="#F7F5F2"/><text x="714" y="135" fill="#6E6963" font-size="8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" text-anchor="middle" letter-spacing="0.06em">ALLOWLISTED</text>
+<rect x="212" y="24" width="148" height="76" rx="6" fill="#F7F5F2"/>
+<rect x="212" y="24" width="148" height="76" rx="6" fill="rgba(44,44,42,0.05)" stroke="#5C5650" stroke-width="1"/>
+<text x="286" y="46" fill="#2C2C2A" font-size="12" font-weight="600" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif" text-anchor="middle">autonomy-toggle</text>
+<text x="286" y="62" fill="#5C5650" font-size="9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" text-anchor="middle">'go less' / 'go full'</text>
+<text x="286" y="74" fill="#5C5650" font-size="9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" text-anchor="middle">writes autonomy-level</text>
+<rect x="404" y="24" width="340" height="76" rx="6" fill="#F7F5F2"/>
+<rect x="404" y="24" width="340" height="76" rx="6" fill="rgba(59,79,94,0.09)" stroke="#3B4F5E" stroke-width="1"/>
+<text x="574" y="54" fill="#2C2C2A" font-size="12" font-weight="600" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif" text-anchor="middle">ALLOW</text>
+<text x="574" y="70" fill="#5C5650" font-size="9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" text-anchor="middle">gate-self-merge: REVIEWED label and green CI</text>
+<text x="574" y="82" fill="#5C5650" font-size="9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" text-anchor="middle">openspec-autonomy: OpenSpec repo, allowlisted verbs</text>
+<rect x="20" y="164" width="148" height="76" rx="6" fill="#F7F5F2"/>
+<rect x="20" y="164" width="148" height="76" rx="6" fill="rgba(44,44,42,0.05)" stroke="#5C5650" stroke-width="1"/>
+<text x="94" y="194" fill="#2C2C2A" font-size="12" font-weight="600" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif" text-anchor="middle">Bash command</text>
+<text x="94" y="210" fill="#5C5650" font-size="9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" text-anchor="middle">PreToolUse: Bash</text>
+<text x="94" y="222" fill="#5C5650" font-size="9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" text-anchor="middle">strictest wins</text>
+<rect x="212" y="164" width="148" height="76" rx="6" fill="#F7F5F2"/>
+<rect x="212" y="164" width="148" height="76" rx="6" fill="#FCFBF9" stroke="#2C2C2A" stroke-width="1"/>
+<text x="286" y="194" fill="#2C2C2A" font-size="12" font-weight="600" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif" text-anchor="middle">autonomy-gate</text>
+<text x="286" y="210" fill="#5C5650" font-size="9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" text-anchor="middle">tamper scan on writes</text>
+<text x="286" y="222" fill="#5C5650" font-size="9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" text-anchor="middle">less: no push or merge</text>
+<rect x="404" y="164" width="148" height="76" rx="6" fill="#F7F5F2"/>
+<rect x="404" y="164" width="148" height="76" rx="6" fill="#FCFBF9" stroke="#2C2C2A" stroke-width="1"/>
+<text x="478" y="194" fill="#2C2C2A" font-size="12" font-weight="600" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif" text-anchor="middle">gate-self-merge</text>
+<text x="478" y="210" fill="#5C5650" font-size="9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" text-anchor="middle">gh pr merge only</text>
+<text x="478" y="222" fill="#5C5650" font-size="9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" text-anchor="middle">one PR, no cd or -C</text>
+<rect x="596" y="164" width="148" height="76" rx="6" fill="#F7F5F2"/>
+<rect x="596" y="164" width="148" height="76" rx="6" fill="#FCFBF9" stroke="#2C2C2A" stroke-width="1"/>
+<text x="670" y="194" fill="#2C2C2A" font-size="12" font-weight="600" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif" text-anchor="middle">openspec-autonomy</text>
+<text x="670" y="210" fill="#5C5650" font-size="9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" text-anchor="middle">OpenSpec repo + full</text>
+<text x="670" y="222" fill="#5C5650" font-size="9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" text-anchor="middle">allowlisted verbs only</text>
+<rect x="788" y="164" width="148" height="76" rx="6" fill="#F7F5F2"/>
+<rect x="788" y="164" width="148" height="76" rx="6" fill="rgba(44,44,42,0.05)" stroke="#5C5650" stroke-width="1"/>
+<text x="862" y="194" fill="#2C2C2A" font-size="12" font-weight="600" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif" text-anchor="middle">Normal prompt</text>
+<text x="862" y="210" fill="#5C5650" font-size="9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" text-anchor="middle">ask the human</text>
+<text x="862" y="222" fill="#5C5650" font-size="9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" text-anchor="middle">or auto mode decides</text>
+<rect x="20" y="304" width="148" height="76" rx="6" fill="#F7F5F2"/>
+<rect x="20" y="304" width="148" height="76" rx="6" fill="rgba(44,44,42,0.05)" stroke="#5C5650" stroke-width="1"/>
+<text x="94" y="334" fill="#2C2C2A" font-size="12" font-weight="600" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif" text-anchor="middle">deny rules</text>
+<text x="94" y="350" fill="#5C5650" font-size="9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" text-anchor="middle">settings.json: rm,</text>
+<text x="94" y="362" fill="#5C5650" font-size="9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" text-anchor="middle">sudo, push main</text>
+<rect x="212" y="304" width="148" height="76" rx="6" fill="#F7F5F2"/>
+<rect x="212" y="304" width="148" height="76" rx="6" fill="rgba(196,90,60,0.10)" stroke="#A8482D" stroke-width="1"/>
+<text x="286" y="334" fill="#2C2C2A" font-size="12" font-weight="600" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif" text-anchor="middle">DENY</text>
+<text x="286" y="350" fill="#5C5650" font-size="9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" text-anchor="middle">write to hooks or dial</text>
+<text x="286" y="362" fill="#5C5650" font-size="9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" text-anchor="middle">push/merge while less</text>
+<rect x="404" y="304" width="148" height="76" rx="6" fill="#F7F5F2"/>
+<rect x="404" y="304" width="148" height="76" rx="6" fill="#FCFBF9" stroke="#2C2C2A" stroke-width="1"/>
+<text x="478" y="334" fill="#2C2C2A" font-size="12" font-weight="600" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif" text-anchor="middle">ASK</text>
+<text x="478" y="350" fill="#5C5650" font-size="9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" text-anchor="middle">no REVIEWED label</text>
+<text x="478" y="362" fill="#5C5650" font-size="9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" text-anchor="middle">red or pending CI</text>
+<text x="596" y="324" fill="#5C5650" font-size="14" font-style="italic" font-family="ui-serif, Georgia, 'Times New Roman', serif" text-anchor="start">Deny rules always win. Edit and Write</text>
+<text x="596" y="342" fill="#5C5650" font-size="14" font-style="italic" font-family="ui-serif, Georgia, 'Times New Roman', serif" text-anchor="start">take another path: protect-lint-config</text>
+<text x="596" y="360" fill="#5C5650" font-size="14" font-style="italic" font-family="ui-serif, Georgia, 'Times New Roman', serif" text-anchor="start">asks on lint or type config; stop-gate</text>
+<text x="596" y="378" fill="#5C5650" font-size="14" font-style="italic" font-family="ui-serif, Georgia, 'Times New Roman', serif" text-anchor="start">checks on Stop.</text>
+<line x1="20" y1="400" x2="940" y2="400" stroke="rgba(44,44,42,0.14)" stroke-width="0.8"/>
+<text x="20" y="420" fill="#6E6963" font-size="8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" letter-spacing="0.14em">LEGEND</text>
+<rect x="92" y="410" width="24" height="12" rx="3" fill="#FCFBF9" stroke="#2C2C2A" stroke-width="1"/>
+<text x="124" y="420" fill="#5C5650" font-size="9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">hook decision</text>
+<rect x="224" y="410" width="24" height="12" rx="3" fill="rgba(196,90,60,0.10)" stroke="#A8482D" stroke-width="1"/>
+<text x="256" y="420" fill="#5C5650" font-size="9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">deny</text>
+<rect x="306" y="410" width="24" height="12" rx="3" fill="rgba(59,79,94,0.09)" stroke="#3B4F5E" stroke-width="1"/>
+<text x="338" y="420" fill="#5C5650" font-size="9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">allow</text>
+<rect x="394" y="410" width="24" height="12" rx="3" fill="rgba(44,44,42,0.05)" stroke="#5C5650" stroke-width="1"/>
+<text x="426" y="420" fill="#5C5650" font-size="9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">config or state</text>
+</svg>
+</div>
+</div>
+</body>
+</html>

@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The workflow: plan, isolate, prove, review, merge</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root { --color-paper: #1C1B19; --color-ink: #E8E5E1; --color-muted: #C4BFB8; }
+body { font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif; background: var(--color-paper); color: var(--color-ink); min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 3rem 2rem; }
+.frame { max-width: 1000px; width: 100%; }
+.diagram-container { width: 100%; overflow-x: auto; }
+.eyebrow { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace; font-size: 0.66rem; font-weight: 500; letter-spacing: 0.18em; text-transform: uppercase; color: var(--color-muted); margin-bottom: 0.5rem; }
+h1 { font-family: ui-serif, Georgia, 'Times New Roman', serif; font-size: clamp(1.5rem, 2.4vw + 0.75rem, 2rem); font-weight: 400; letter-spacing: -0.02em; line-height: 1.15; margin-bottom: 1.5rem; }
+svg { width: 100%; min-width: 960px; display: block; }
+@media print { .diagram-container { overflow-x: visible; } svg { min-width: 0; } }
+</style>
+</head>
+<body>
+<div class="frame">
+<p class="eyebrow">Workflow · do no work</p>
+<h1>The workflow: plan, isolate, prove, review, merge</h1>
+<div class="diagram-container">
+<svg viewBox="0 0 960 440" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="workflow-dark-title workflow-dark-desc">
+<title id="workflow-dark-title">The workflow: plan, isolate, prove, review, merge</title>
+<desc id="workflow-dark-desc">Ten steps from session start to /log, with the CI Claude review applying REVIEWED, the gate-self-merge hook checking it, and a fix loop on a blocked review.</desc>
+<defs><marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#C4BFB8"/></marker><marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#D06A4C"/></marker><marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#6B8B9E"/></marker></defs>
+<rect width="100%" height="100%" fill="#1C1B19"/>
+<line x1="208" y1="62" x2="264" y2="62" stroke="#C4BFB8" stroke-width="1.2" marker-end="url(#arrow)"/>
+<line x1="452" y1="62" x2="508" y2="62" stroke="#C4BFB8" stroke-width="1.2" marker-end="url(#arrow)"/>
+<line x1="696" y1="62" x2="752" y2="62" stroke="#C4BFB8" stroke-width="1.2" marker-end="url(#arrow)"/>
+<line x1="876" y1="100" x2="876" y2="164" stroke="#C4BFB8" stroke-width="1.2" marker-end="url(#arrow)"/>
+<line x1="752" y1="202" x2="696" y2="202" stroke="#C4BFB8" stroke-width="1.2" marker-end="url(#arrow)"/>
+<line x1="508" y1="202" x2="452" y2="202" stroke="#C4BFB8" stroke-width="1.2" marker-end="url(#arrow)"/>
+<line x1="264" y1="202" x2="208" y2="202" stroke="#C4BFB8" stroke-width="1.2" marker-end="url(#arrow)"/>
+<line x1="114" y1="240" x2="114" y2="304" stroke="#C4BFB8" stroke-width="1.2" marker-end="url(#arrow)"/>
+<line x1="208" y1="342" x2="264" y2="342" stroke="#C4BFB8" stroke-width="1.2" marker-end="url(#arrow)"/>
+<path d="M602,164 V140 Q602,132 610,132 H808 Q816,132 816,124 V100" fill="none" stroke="#C4BFB8" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#arrow)"/>
+<rect x="671" y="114" width="76" height="12" rx="2" fill="#1C1B19"/><text x="709" y="123" fill="#9A9590" font-size="8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" text-anchor="middle" letter-spacing="0.06em">FIX, RE-PUSH</text>
+<rect x="20" y="24" width="188" height="76" rx="6" fill="#1C1B19"/>
+<rect x="20" y="24" width="188" height="76" rx="6" fill="#242320" stroke="#E8E5E1" stroke-width="1"/>
+<text x="30" y="40" fill="#9A9590" font-size="8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" letter-spacing="0.1em">01</text>
+<text x="114" y="58" fill="#E8E5E1" font-size="12" font-weight="600" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif" text-anchor="middle">Session start</text>
+<text x="114" y="74" fill="#C4BFB8" font-size="9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" text-anchor="middle">session-context hook</text>
+<text x="114" y="86" fill="#C4BFB8" font-size="9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" text-anchor="middle">loads log, todo, HANDOFF</text>
+<rect x="264" y="24" width="188" height="76" rx="6" fill="#1C1B19"/>
+<rect x="264" y="24" width="188" height="76" rx="6" fill="#242320" stroke="#E8E5E1" stroke-width="1"/>
+<text x="274" y="40" fill="#9A9590" font-size="8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" letter-spacing="0.1em">02</text>
+<text x="358" y="58" fill="#E8E5E1" font-size="12" font-weight="600" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif" text-anchor="middle">Plan</text>
+<text x="358" y="74" fill="#C4BFB8" font-size="9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" text-anchor="middle">OpenSpec change or PLAN.md</text>
+<text x="358" y="86" fill="#C4BFB8" font-size="9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" text-anchor="middle">only above 3 files</text>
+<rect x="508" y="24" width="188" height="76" rx="6" fill="#1C1B19"/>
+<rect x="508" y="24" width="188" height="76" rx="6" fill="#242320" stroke="#E8E5E1" stroke-width="1"/>
+<text x="518" y="40" fill="#9A9590" font-size="8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" letter-spacing="0.1em">03</text>
+<text x="602" y="58" fill="#E8E5E1" font-size="12" font-weight="600" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif" text-anchor="middle">Worktree + branch</text>
+<text x="602" y="74" fill="#C4BFB8" font-size="9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" text-anchor="middle">never the primary checkout</text>
+<text x="602" y="86" fill="#C4BFB8" font-size="9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" text-anchor="middle">TICKET-N-description</text>
+<rect x="752" y="24" width="188" height="76" rx="6" fill="#1C1B19"/>
+<rect x="752" y="24" width="188" height="76" rx="6" fill="#242320" stroke="#E8E5E1" stroke-width="1"/>
+<text x="762" y="40" fill="#9A9590" font-size="8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" letter-spacing="0.1em">04</text>
+<text x="846" y="58" fill="#E8E5E1" font-size="12" font-weight="600" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif" text-anchor="middle">Build</text>
+<text x="846" y="74" fill="#C4BFB8" font-size="9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" text-anchor="middle">TDD, lint, typecheck</text>
+<text x="846" y="86" fill="#C4BFB8" font-size="9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" text-anchor="middle">stop-gate blocks a red finish</text>
+<rect x="752" y="164" width="188" height="76" rx="6" fill="#1C1B19"/>
+<rect x="752" y="164" width="188" height="76" rx="6" fill="#242320" stroke="#E8E5E1" stroke-width="1"/>
+<text x="762" y="180" fill="#9A9590" font-size="8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" letter-spacing="0.1em">05</text>
+<text x="846" y="198" fill="#E8E5E1" font-size="12" font-weight="600" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif" text-anchor="middle">Push + PR</text>
+<text x="846" y="214" fill="#C4BFB8" font-size="9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" text-anchor="middle">fleet PR template</text>
+<text x="846" y="226" fill="#C4BFB8" font-size="9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" text-anchor="middle">Proof is pasted output</text>
+<rect x="508" y="164" width="188" height="76" rx="6" fill="#1C1B19"/>
+<rect x="508" y="164" width="188" height="76" rx="6" fill="rgba(208,106,76,0.14)" stroke="#D06A4C" stroke-width="1"/>
+<text x="518" y="180" fill="#9A9590" font-size="8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" letter-spacing="0.1em">06</text>
+<text x="602" y="198" fill="#E8E5E1" font-size="12" font-weight="600" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif" text-anchor="middle">CI + Claude review</text>
+<text x="602" y="214" fill="#C4BFB8" font-size="9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" text-anchor="middle">ci.yml, claude-review.yml</text>
+<text x="602" y="226" fill="#C4BFB8" font-size="9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" text-anchor="middle">REVIEWED only on PASS</text>
+<rect x="264" y="164" width="188" height="76" rx="6" fill="#1C1B19"/>
+<rect x="264" y="164" width="188" height="76" rx="6" fill="rgba(208,106,76,0.14)" stroke="#D06A4C" stroke-width="1"/>
+<text x="274" y="180" fill="#9A9590" font-size="8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" letter-spacing="0.1em">07</text>
+<text x="358" y="198" fill="#E8E5E1" font-size="12" font-weight="600" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif" text-anchor="middle">gate-self-merge</text>
+<text x="358" y="214" fill="#C4BFB8" font-size="9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" text-anchor="middle">REVIEWED + all checks green</text>
+<text x="358" y="226" fill="#C4BFB8" font-size="9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" text-anchor="middle">otherwise asks a human</text>
+<rect x="20" y="164" width="188" height="76" rx="6" fill="#1C1B19"/>
+<rect x="20" y="164" width="188" height="76" rx="6" fill="#242320" stroke="#E8E5E1" stroke-width="1"/>
+<text x="30" y="180" fill="#9A9590" font-size="8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" letter-spacing="0.1em">08</text>
+<text x="114" y="198" fill="#E8E5E1" font-size="12" font-weight="600" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif" text-anchor="middle">Squash merge</text>
+<text x="114" y="214" fill="#C4BFB8" font-size="9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" text-anchor="middle">one PR per call</text>
+<text x="114" y="226" fill="#C4BFB8" font-size="9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" text-anchor="middle">-R owner/repo, no cd</text>
+<rect x="20" y="304" width="188" height="76" rx="6" fill="#1C1B19"/>
+<rect x="20" y="304" width="188" height="76" rx="6" fill="#242320" stroke="#E8E5E1" stroke-width="1"/>
+<text x="30" y="320" fill="#9A9590" font-size="8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" letter-spacing="0.1em">09</text>
+<text x="114" y="338" fill="#E8E5E1" font-size="12" font-weight="600" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif" text-anchor="middle">Release / deploy</text>
+<text x="114" y="354" fill="#C4BFB8" font-size="9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" text-anchor="middle">where the repo allows it</text>
+<text x="114" y="366" fill="#C4BFB8" font-size="9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" text-anchor="middle">tag + gh release</text>
+<rect x="264" y="304" width="188" height="76" rx="6" fill="#1C1B19"/>
+<rect x="264" y="304" width="188" height="76" rx="6" fill="#242320" stroke="#E8E5E1" stroke-width="1"/>
+<text x="274" y="320" fill="#9A9590" font-size="8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" letter-spacing="0.1em">10</text>
+<text x="358" y="338" fill="#E8E5E1" font-size="12" font-weight="600" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif" text-anchor="middle">/log</text>
+<text x="358" y="354" fill="#C4BFB8" font-size="9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" text-anchor="middle">daily log, CHANGELOG</text>
+<text x="358" y="366" fill="#C4BFB8" font-size="9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" text-anchor="middle">HANDOFF, memory</text>
+<text x="508" y="332" fill="#C4BFB8" font-size="14" font-style="italic" font-family="ui-serif, Georgia, 'Times New Roman', serif" text-anchor="start">Any missing label or red check stops at 07.</text>
+<text x="508" y="350" fill="#C4BFB8" font-size="14" font-style="italic" font-family="ui-serif, Georgia, 'Times New Roman', serif" text-anchor="start">A push after review removes REVIEWED</text>
+<text x="508" y="368" fill="#C4BFB8" font-size="14" font-style="italic" font-family="ui-serif, Georgia, 'Times New Roman', serif" text-anchor="start">and the review runs again.</text>
+<line x1="20" y1="400" x2="940" y2="400" stroke="rgba(232,229,225,0.16)" stroke-width="0.8"/>
+<text x="20" y="420" fill="#9A9590" font-size="8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" letter-spacing="0.14em">LEGEND</text>
+<rect x="92" y="410" width="24" height="12" rx="3" fill="#242320" stroke="#E8E5E1" stroke-width="1"/>
+<text x="124" y="420" fill="#C4BFB8" font-size="9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">step</text>
+<rect x="174" y="410" width="24" height="12" rx="3" fill="rgba(208,106,76,0.14)" stroke="#D06A4C" stroke-width="1"/>
+<text x="206" y="420" fill="#C4BFB8" font-size="9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">merge gate</text>
+<line x1="290" y1="416" x2="314" y2="416" stroke="#C4BFB8" stroke-width="1.2" stroke-dasharray="5,4"/>
+<text x="322" y="420" fill="#C4BFB8" font-size="9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">fix loop</text>
+</svg>
+</div>
+</div>
+</body>
+</html>
