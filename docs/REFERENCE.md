@@ -355,8 +355,8 @@ Helpers for the engraph knowledge-graph MCP server over a vault of hardlinked ma
 ## CI workflows
 
 ### `ci`
-**What:** Shell syntax check, then every test script on Ubuntu and macOS, the three skill test suites, changelog fragment check, the public-safety check, a Windows install into a throwaway home, and gitleaks. Pinned action SHAs, read-only token.  **When it runs:** Pull requests and pushes to `main`.
-**Example:** A PR adding a hook without a test still passes unless `tests/hooks_test.sh` covers it; extend that test.
+**What:** Shell syntax check, then `tests/run-all.sh` on Ubuntu and macOS (discovers every `tests/*_test.sh`, plus the wanderlog, backlog and tighten suites), changelog fragment check, the public-safety check, a Windows install into a throwaway home, and gitleaks. Pinned action SHAs, read-only token.  **When it runs:** Pull requests and pushes to `main`.
+**Example:** Add `tests/<x>_test.sh` and CI runs it with no workflow edit; `tests/ci_discovery_test.sh` fails if `ci.yml` lists individual tests.
 **Configure / disable:** Secret `PUBLIC_SAFETY_DENY_LIST` is optional. Required checks come from `repo-bootstrap` (`BOOTSTRAP_CHECKS`).
 **Source:** [`.github/workflows/ci.yml`](../.github/workflows/ci.yml)
 

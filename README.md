@@ -176,16 +176,12 @@ Output names the file, line and source but never prints a private pattern. A lin
 ## Test
 
 ```bash
-./tests/install_test.sh   # installs into a throwaway HOME, link and copy mode, twice
-./tests/hooks_test.sh     # feeds commands to the permission hooks and checks each decision
-./tests/bootstrap_test.sh # repo-bootstrap against a fake gh
-./tests/review_test.sh    # repo-bootstrap --review and review-rollout against a fake gh
-./tests/ci_wait_test.sh   # ci-wait against a fake gh
-./tests/claude_review_verdict_test.sh  # verdict to label logic, with a stubbed gh
-./tests/research_hooks_test.sh  # stop-gate and protect-lint-config in temp repos
-./tests/public_safety_test.sh   # leak check: builtin, derived and private-list patterns
-./tests/changelog_test.sh       # changelog fragments: next, check, compile
+./tests/run-all.sh                  # every tests/*_test.sh plus the skill suites, summary table at the end
+./tests/run-all.sh --only 'hooks*'  # one test by glob
+./tests/run-all.sh --list           # what would run
 ```
+
+New tests: name them tests/<x>_test.sh; CI picks them up, don't edit ci.yml.
 
 CI runs these on GitHub-hosted Ubuntu and macOS, plus the skill test suites and gitleaks.
 `scripts/public-safety-check.sh` also runs in CI and as a pre-commit hook.
