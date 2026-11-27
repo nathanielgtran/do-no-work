@@ -150,6 +150,12 @@ Not automated:
 - `herdr` (installs its own hook)
 - the Parakeet model that `transcribe` expects at `~/parakeet`
 
+## Claude review
+
+`.github/workflows/claude-review.yml` is a reusable workflow. On each PR it removes `REVIEWED`, has Claude review the diff read-only (Read/Grep/Glob, `git diff`/`git log`), posts the findings as a comment, and adds `REVIEWED` only on a PASS for the same head commit. A BLOCK, a missing or unparseable verdict, or a head that moved mid-review fails the job with no label. Fork PRs and drafts are skipped (no secrets on forks). The label is read from the action's `structured_output`, via `scripts/claude-review-verdict.sh`, which is always loaded from `main` rather than the PR.
+
+Enable in a repo: create a `REVIEWED` label, run `gh secret set CLAUDE_CODE_OAUTH_TOKEN -R owner/repo` with a token from `claude setup-token`, and copy `examples/claude-review-caller.yml` to `.github/workflows/review.yml`. Public repos keep `ubuntu-latest`. If the repo restricts allowed actions, allow `anthropics/claude-code-action@*`.
+
 ## Secrets
 
 None are stored here. Scripts read tokens from environment variables or `pass` (e.g. `pass dev/magic-mcp-key`). A gitleaks pre-commit hook and GitHub push protection both block accidental commits.
@@ -161,6 +167,7 @@ None are stored here. Scripts read tokens from environment variables or `pass` (
 ./tests/hooks_test.sh     # feeds commands to the permission hooks and checks each decision
 ./tests/bootstrap_test.sh # repo-bootstrap against a fake gh
 ./tests/ci_wait_test.sh   # ci-wait against a fake gh
+./tests/claude_review_verdict_test.sh  # verdict to label logic, with a stubbed gh
 ```
 
 CI runs both on GitHub-hosted Ubuntu and macOS, plus the skill test suites and gitleaks.
