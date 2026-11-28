@@ -7,20 +7,20 @@ Hooks are scripts Claude Code runs on events such as a Bash call or a stop. They
 - To disable a hook, delete its entry from `~/.claude/settings.json`. The installer never edits that file.
 - Editing hook files or settings from inside a Claude session is blocked on purpose. Use a `!` command or edit by hand.
 
-| Hook | Event | Matcher | Decision | Purpose |
-|---|---|---|---|---|
-| [`autonomy-gate`](#autonomy-gate) | PreToolUse | `Bash` | deny, ask | Guard the dial, the hooks, `main` and git hook bypasses |
-| [`gate-self-merge`](#gate-self-merge) | PreToolUse | `Bash`, `if: Bash(gh pr merge:*)` | allow, ask | Merge only with `REVIEWED` and green checks |
-| [`openspec-autonomy`](#openspec-autonomy) | PreToolUse | `Bash` | allow (else no opinion) | Skip prompts for reversible commands in OpenSpec repos |
-| [`protect-lint-config`](#protect-lint-config) | PreToolUse | `Edit\|Write\|MultiEdit` | ask | Ask before lint, format or type-check config changes |
-| [`autonomy-toggle`](#autonomy-toggle) | UserPromptSubmit | none | none | Flip the dial on "go less" and "go full" |
-| [`claude-notify`](#claude-notify) | PermissionRequest, Notification | `idle_prompt` for Notification | none | Discord DM when a session needs you |
-| [`session-context`](#session-context) | SessionStart | none | none | Inject last daily-log entry, active todos, HANDOFF |
-| [`compact-reinject`](#compact-reinject) | SessionStart | `compact` | none | Re-inject a rules digest and HANDOFF after compaction |
-| [`go-check`](#go-check) | PostToolUse (async) | `Write\|Edit\|MultiEdit` | none (wakes Claude on failure) | gofmt, vet and lint on the edited package |
-| [`stop-gate`](#stop-gate) | Stop | none | block | Refuse to stop while the repo's fast check fails |
-| [`post-pr-create`](#post-pr-create) | PostToolUse | `Bash`, `if: Bash(gh pr create:*)` | none (instruction) | Tell the session how the new PR gets reviewed |
-| [`flip-todo-on-merge`](#flip-todo-on-merge) | PostToolUse | `Bash` | none | Tick the matching TODO.md line after a merge |
+| Hook | Runs on | Does |
+|---|---|---|
+| [`autonomy-gate`](#autonomy-gate) | PreToolUse: `Bash` | Guard the dial, the hooks, `main` and git hook bypasses (deny, ask) |
+| [`gate-self-merge`](#gate-self-merge) | PreToolUse: `Bash`, `if: Bash(gh pr merge:*)` | Merge only with `REVIEWED` and green checks (allow, ask) |
+| [`openspec-autonomy`](#openspec-autonomy) | PreToolUse: `Bash` | Skip prompts for reversible commands in OpenSpec repos (allow, else no opinion) |
+| [`protect-lint-config`](#protect-lint-config) | PreToolUse: `Edit\|Write\|MultiEdit` | Ask before lint, format or type-check config changes (ask) |
+| [`autonomy-toggle`](#autonomy-toggle) | UserPromptSubmit | Flip the dial on "go less" and "go full" |
+| [`claude-notify`](#claude-notify) | PermissionRequest, Notification: `idle_prompt` for Notification | Discord DM when a session needs you |
+| [`session-context`](#session-context) | SessionStart | Inject last daily-log entry, active todos, HANDOFF |
+| [`compact-reinject`](#compact-reinject) | SessionStart: `compact` | Re-inject a rules digest and HANDOFF after compaction |
+| [`go-check`](#go-check) | PostToolUse (async): `Write\|Edit\|MultiEdit` | gofmt, vet and lint on the edited package; wakes Claude on failure |
+| [`stop-gate`](#stop-gate) | Stop | Refuse to stop while the repo's fast check fails (block) |
+| [`post-pr-create`](#post-pr-create) | PostToolUse: `Bash`, `if: Bash(gh pr create:*)` | Tell the session how the new PR gets reviewed |
+| [`flip-todo-on-merge`](#flip-todo-on-merge) | PostToolUse: `Bash` | Tick the matching TODO.md line after a merge |
 
 ---
 
