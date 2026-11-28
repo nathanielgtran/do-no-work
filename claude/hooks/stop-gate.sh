@@ -4,7 +4,7 @@
 # Repo-defined checks (.claude/stop-gate, auto-detect) run only when origin is owned by a
 # GitHub user/org in CLAUDE_STOP_GATE_OWNERS (space-separated), so a cloned repo can't run code.
 # Env: CLAUDE_STOP_GATE_TIMEOUT (seconds, default 120).
-# Allows the stop when not in git, the tree is clean, or the same failure repeats under stop_hook_active.
+# Allows the stop when not in git, the tree is clean, the tree matches the last passing run, or the same failure repeats under stop_hook_active.
 set -uo pipefail
 export PATH="/usr/local/go/bin:$HOME/go/bin:$PATH"
 
@@ -51,6 +51,18 @@ select_cmd() {
   detect_cmd
 }
 
+tree_fingerprint() {
+  {
+    printf '%s\n' "$1"
+    git rev-parse HEAD 2>/dev/null
+    git diff HEAD 2>/dev/null
+    git ls-files --others --exclude-standard 2>/dev/null | while IFS= read -r f; do
+      printf '%s ' "$f"
+      cksum < "$f" 2>/dev/null
+    done
+  } | cksum
+}
+
 block() {
   jq -n --arg r "$1" '{decision:"block",reason:$r}'
 }
@@ -69,10 +81,15 @@ CMD=$(select_cmd)
 [ -n "$CMD" ] || exit 0
 
 STATE="${TMPDIR:-/tmp}/claude-stop-gate-$SESSION"
+GREEN="$STATE.green"
+FINGERPRINT=$(tree_fingerprint "$CMD")
+[ "$(cat "$GREEN" 2>/dev/null)" = "$FINGERPRINT" ] && exit 0
+
 OUT=$(run_timed bash -c "$CMD" 2>&1)
 RC=$?
 if [ "$RC" -eq 0 ]; then
   [ -e "$STATE" ] && : > "$STATE"
+  printf '%s' "$FINGERPRINT" > "$GREEN"
   exit 0
 fi
 

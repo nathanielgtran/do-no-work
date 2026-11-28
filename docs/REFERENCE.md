@@ -6,7 +6,7 @@ Each card has the same fields: what it does, when it runs, an example, how to co
 
 | Section | What is in it |
 |---|---|
-| [Hooks](#hooks) | 10 hook scripts, 1 inline hook in the settings example, 1 hook script in a skill |
+| [Hooks](#hooks) | 11 hook scripts, 1 hook script in a skill |
 | [Slash commands](#slash-commands) | `/log`, `/prune`, `/test`, `/review-pr`, `/deploy`, `/hc`, `/rollback` |
 | [Skills](#skills) | `autobuild`, `backlog`, `call`, `tighten`, `wanderlog` |
 | [Agents](#agents) | `reviewer` |
@@ -33,9 +33,9 @@ To disable any hook, delete its entry from `~/.claude/settings.json` (the instal
 | [`claude-notify`](#claude-notify) | PermissionRequest, Notification | `idle_prompt` for Notification | none | Discord DM when a session needs you |
 | [`session-context`](#session-context) | SessionStart | none | none | Inject last daily-log entry, active todos, HANDOFF |
 | [`compact-reinject`](#compact-reinject) | SessionStart | `compact` | none | Re-inject a rules digest and HANDOFF after compaction |
-| [`go-check`](#go-check) | PostToolUse | `Write\|Edit` | none (feedback) | Run go test, vet and lint on the edited package |
+| [`go-check`](#go-check) | PostToolUse (async) | `Write\|Edit\|MultiEdit` | none (wakes Claude on failure) | Run gofmt, vet and lint on the edited package in the background |
 | [`stop-gate`](#stop-gate) | Stop | none | block | Refuse to stop while the repo's fast check fails |
-| [`gh pr create` review prompt](#gh-pr-create-review-prompt-inline) | PostToolUse | `Bash` | none (instruction) | Tell the session to review a new PR |
+| [`post-pr-create`](#post-pr-create) | PostToolUse | `Bash`, `if: Bash(gh pr create:*)` | none (instruction) | Tell the session how the new PR gets reviewed |
 | [`flip-todo-on-merge.sh`](#flip-todo-on-merge) | PostToolUse | `Bash` | none | Tick the matching TODO.md line after a merge |
 
 ### `autonomy-gate`
@@ -87,22 +87,22 @@ To disable any hook, delete its entry from `~/.claude/settings.json` (the instal
 **Source:** [`claude/hooks/compact-reinject.sh`](../claude/hooks/compact-reinject.sh)
 
 ### `go-check`
-**What:** After a `.go` file is written or edited, finds its `go.mod`, then runs `go test`, `go vet` and (if installed) `golangci-lint run --new-from-rev=HEAD` on that package, with 90 s timeouts and 40-line clipping. Sends failures back as context, or a short pass message.  **When it runs:** PostToolUse on `Write|Edit`; exits at once for other files.
-**Example:** Editing `internal/store/db.go` runs the checks for `./internal/store` only.
-**Configure / disable:** No env vars. Needs `go` on PATH (`/usr/local/go/bin` and `~/go/bin` are added). Remove the entry to disable.
+**What:** After a `.go` file is written or edited, finds its `go.mod`, then runs `gofmt -l` on the file, `go vet` on its package and (if installed) `golangci-lint run --new-from-rev=HEAD` on it, with a 90 s lint timeout and 40-line clipping. It does not run `go test`; `stop-gate` does. Wired `async` with `asyncRewake`: success is silent; a failure prints the report to stderr and exits 2, which wakes Claude with it as a system reminder.  **When it runs:** PostToolUse on `Write|Edit|MultiEdit`, in the background; exits at once for other files.
+**Example:** Editing `internal/store/db.go` checks `./internal/store` only. A vet error arrives as a reminder a moment later, without blocking the edit.
+**Configure / disable:** No env vars. Needs `go` and `gofmt` on PATH (`/usr/local/go/bin` and `~/go/bin` are appended). Remove the entry to disable.
 **Source:** [`claude/hooks/go-check.sh`](../claude/hooks/go-check.sh)
 
 ### `stop-gate`
-**What:** On Stop, if the working tree has changes, runs the repo's fast check and blocks the stop with the failure output (40 lines). The check is `$CLAUDE_STOP_GATE_CMD`, else the first line of `.claude/stop-gate`, else auto-detect (`go vet ./... && go test ./...`, `npm test --silent`, or `pytest -q -x`, plus `openspec validate --strict --all` when `openspec/config.yaml` exists). It lets the stop through when the same failure repeats under `stop_hook_active`, when not in git, when the tree is clean, or when no check is found.  **When it runs:** Stop.
+**What:** On Stop, if the working tree has changes, runs the repo's fast check and blocks the stop with the failure output (40 lines). The check is `$CLAUDE_STOP_GATE_CMD`, else the first line of `.claude/stop-gate`, else auto-detect (`go vet ./... && go test ./...`, `npm test --silent`, or `pytest -q -x`, plus `openspec validate --strict --all` when `openspec/config.yaml` exists). It lets the stop through when the same failure repeats under `stop_hook_active`, when not in git, when the tree is clean, when no check is found, or when the working tree (HEAD, `git diff HEAD`, untracked files and their checksums) is identical to the last passing run in the session, so question-only turns skip the check. A failing run is never remembered.  **When it runs:** Stop.
 **Example:** Claude edits a Go file and tries to finish with a failing test; the stop is blocked with the `go test` output. A second identical failure after a retry is allowed through with a message.
 **Configure / disable:** `CLAUDE_STOP_GATE_CMD` (runs in any repo), `CLAUDE_STOP_GATE_TIMEOUT` (seconds, default 120), `CLAUDE_STOP_GATE_OWNERS` (space-separated GitHub users or orgs). Repo-defined checks (`.claude/stop-gate`, auto-detect) run only when `origin` is owned by one of those owners, so a cloned repo cannot run code. Remove the `Stop` entry to disable. Keep the check fast.
 **Source:** [`claude/hooks/stop-gate.sh`](../claude/hooks/stop-gate.sh)
 
-### `gh pr create` review prompt (inline)
-**What:** An inline command in the settings example. When a Bash command contains `gh pr create`, it returns context telling the session to spawn a sonnet reviewer, fix findings, apply `REVIEWED`, wait for CI with `gh pr checks --watch --fail-fast`, then squash-merge. It never merges red.  **When it runs:** PostToolUse on Bash.
-**Example:** After `gh pr create`, the session reviews its own PR and, with `gh pr merge` gated by `gate-self-merge`, merges only when green and labelled. It does not fire for PRs opened by sub-agents.
-**Configure / disable:** Edit the instruction string in `claude/settings.example.json` before merging it into your settings. Remove the first PostToolUse Bash entry to disable. With the [Claude review workflow](#claude-review) enabled, CI applies the label too.
-**Source:** [`claude/settings.example.json`](../claude/settings.example.json)
+### `post-pr-create`
+**What:** After `gh pr create`, returns context for the session. If the repo has a workflow mentioning `claude-review`: CI reviews and applies `REVIEWED`; wait with `gh pr checks <N> --watch --interval 20`; merge with `gh pr merge <N> --squash --delete-branch` only when labelled and green; never add `REVIEWED` itself; a review block is a red check to fix. Otherwise: spawn one `reviewer` agent with the diff, report findings, leave `REVIEWED` and the merge to you. Always exits 0.  **When it runs:** PostToolUse on Bash, filtered by the settings `if` to `gh pr create`.
+**Example:** In a repo with the [Claude review workflow](#claude-review), the PR number comes from the `/pull/<N>` URL in the command output when present.
+**Configure / disable:** Remove its PostToolUse entry. It replaces the old inline hook that told the session to label its own PR.
+**Source:** [`claude/hooks/post-pr-create.sh`](../claude/hooks/post-pr-create.sh)
 
 ### `flip-todo-on-merge`
 **What:** After `gh pr merge <N>`, flips the matching open `- [ ]` line in the repo's `TODO.md` to `- [x]`. Supports `--dry-run`.  **When it runs:** PostToolUse on Bash (second entry in the example); it ignores other commands.
@@ -401,7 +401,7 @@ Helpers for the engraph knowledge-graph MCP server over a vault of hardlinked ma
 ## Settings example
 
 ### `settings.example.json`
-**What:** The wiring for everything above. Sections: `permissions.deny` (rm, sudo, push to main or master, force push, `--admin` merge, edits to settings and the dial), `permissions.ask` (edits to hooks), `hooks` (all hooks above), `statusLine`, `sandbox`, `autoMode.environment`.  **When it runs:** Not installed. Merge `hooks`, `permissions` and `statusLine` into `~/.claude/settings.json` by hand.
+**What:** The wiring for everything above. Sections: `permissions.deny` (rm, sudo, push to main or master, force push, `--admin` merge, edits to settings and the dial), `permissions.ask` (edits to hooks), `hooks` (all hooks above; `autonomy-gate` and `gate-self-merge` carry `onFailure: block` so a crashed guard blocks the call, `go-check` is `async` + `asyncRewake`), `statusLine`, `sandbox`, `autoMode.environment`.  **When it runs:** Not installed. Merge `hooks`, `permissions` and `statusLine` into `~/.claude/settings.json` by hand.
 **Example:** The sandbox block turns on the OS sandbox with `denyRead` for `~/.password-store`, `~/.gnupg`, `~/.ssh` and a strict network allowlist; `autoMode.environment` starts with `$defaults` plus your own lines (user settings only).
 **Configure / disable:** Replace the placeholder registry domain and `homeserver.local`. Keep the deny block if you wire `openspec-autonomy`. Remove any hook entry to disable that hook.
 **Source:** [`claude/settings.example.json`](../claude/settings.example.json)

@@ -79,4 +79,30 @@ check_lint none /r/tsconfig.json '"target": "es2020"' '"target": "es2022"'
 
 rc=$(jq -n '{tool_input:{file_path:"/r/pyproject.toml",content:"[tool.mypy]\nstrict=false\n"}}' | bash "$HOOKS/protect-lint-config.sh" | jq -r '.hookSpecificOutput.permissionDecision')
 if [ "$rc" = ask ]; then pass "pyproject Write content with [tool.mypy] -> ask"; else bad "pyproject Write content -> $rc"; fi
+echo "-- stop-gate fingerprint"
+git init -q "$tmp/fp"
+git -C "$tmp/fp" -c user.name=t -c user.email=t@t commit -q --allow-empty -m init
+echo a > "$tmp/fp/f.txt"
+runs="$tmp/runs"
+fpgate() {
+  jq -n --arg d "$tmp/fp" '{cwd:$d,session_id:"fp1",stop_hook_active:false}' |
+    CLAUDE_STOP_GATE_CMD="echo r >> '$runs'; $1" bash "$HOOKS/stop-gate.sh" 2>/dev/null
+}
+count() { if [ -f "$runs" ]; then wc -l < "$runs" | tr -d ' '; else echo 0; fi; }
+want_count() { local c; c="$(count)"; if [ "$c" = "$2" ]; then pass "$1"; else bad "$1: ran $c times, want $2"; fi; }
+fpgate true >/dev/null; fpgate true >/dev/null
+want_count "same tree twice runs the check once" 1
+echo b >> "$tmp/fp/f.txt"; fpgate true >/dev/null
+want_count "changed untracked file reruns" 2
+echo new > "$tmp/fp/g.txt"; fpgate true >/dev/null
+want_count "added untracked file reruns" 3
+git -C "$tmp/fp" add -A; git -C "$tmp/fp" -c user.name=t -c user.email=t@t commit -q -m c
+echo c >> "$tmp/fp/f.txt"; fpgate true >/dev/null
+want_count "changed tracked file reruns" 4
+fpgate true >/dev/null
+want_count "unchanged tracked diff does not rerun" 4
+echo d >> "$tmp/fp/f.txt"
+r1="$(fpgate false | jq -r '.decision // empty')"; r2="$(fpgate false | jq -r '.decision // empty')"
+want_count "failing run is not stored as green" 6
+if [ "$r1" = block ] && [ "$r2" = block ]; then pass "failure blocks both times"; else bad "failure decisions: $r1 $r2"; fi
 exit $fail

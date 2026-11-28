@@ -90,4 +90,45 @@ expect autonomy-gate.sh deny 'gh pr merge 5 --squash'
 expect autonomy-gate.sh none 'git push-all'
 expect autonomy-gate.sh none 'git status'
 echo full > "$HOME/.claude/autonomy-level"
+
+echo "-- post-pr-create"
+mkdir -p "$tmp/ci/.github/workflows" "$tmp/noci/.github/workflows"
+git init -q "$tmp/ci"
+git init -q "$tmp/noci"
+printf 'jobs:\n  review:\n    uses: x/y/.github/workflows/claude-review.yml@v1\n' > "$tmp/ci/.github/workflows/review.yml"
+printf 'name: ci\n' > "$tmp/noci/.github/workflows/ci.yml"
+prc() {
+  jq -n --arg d "$1" '{cwd:$d,tool_input:{command:"gh pr create --fill"},tool_response:{stdout:"https://github.com/o/r/pull/42"}}' |
+    bash "$HOOKS/post-pr-create.sh" 2>/dev/null | jq -r '.hookSpecificOutput.additionalContext // empty'
+}
+ctx_has() { case "$2" in *$3*) echo "ok   post-pr-create $1"; ;; *) echo "FAIL post-pr-create $1"; fail=1 ;; esac; }
+ctx_lacks() { case "$2" in *$3*) echo "FAIL post-pr-create $1"; fail=1 ;; *) echo "ok   post-pr-create $1" ;; esac; }
+out="$(prc "$tmp/ci")"
+ctx_has "ci: names claude-review" "$out" 'claude-review'
+ctx_has "ci: watch command with PR number" "$out" 'gh pr checks 42 --watch --interval 20'
+ctx_has "ci: merge command" "$out" 'gh pr merge 42 --squash --delete-branch'
+ctx_has "ci: forbids adding REVIEWED" "$out" 'ever add REVIEWED'
+ctx_lacks "ci: no gh pr edit instruction" "$out" 'gh pr edit'
+out="$(prc "$tmp/noci")"
+ctx_has "no ci: spawn reviewer" "$out" 'reviewer'
+ctx_has "no ci: leaves merge to user" "$out" 'to the user'
+ctx_lacks "no ci: no merge command" "$out" 'gh pr merge'
+ctx_lacks "no ci: no gh pr edit instruction" "$out" 'gh pr edit'
+rc=0; jq -n --arg d "$tmp/plain-none" '{cwd:$d}' | bash "$HOOKS/post-pr-create.sh" >/dev/null 2>&1 || rc=$?
+if [ "$rc" = 0 ]; then echo "ok   post-pr-create exits 0 outside a repo"; else echo "FAIL post-pr-create rc=$rc"; fail=1; fi
+
+echo "-- settings example wiring"
+EX="$REPO/claude/settings.example.json"
+wired() {
+  local got
+  got="$(jq -r "$2" "$EX")"
+  if [ "$got" = "$3" ]; then echo "ok   $1"; else echo "FAIL $1: got '$got' want '$3'"; fail=1; fi
+}
+wired "post-pr-create has gh pr create if" '[.hooks.PostToolUse[].hooks[] | select(.command | test("post-pr-create.sh")) | .if] | first' 'Bash(gh pr create:*)'
+wired "no inline gh pr create hook" '[.hooks.PostToolUse[].hooks[] | select(.command | test("gh pr create"))] | length' '0'
+wired "go-check matcher" '[.hooks.PostToolUse[] | select(.hooks[].command | test("go-check.sh")) | .matcher] | first' 'Write|Edit|MultiEdit'
+wired "go-check async" '[.hooks.PostToolUse[].hooks[] | select(.command | test("go-check.sh")) | .async] | first' 'true'
+wired "go-check asyncRewake" '[.hooks.PostToolUse[].hooks[] | select(.command | test("go-check.sh")) | .asyncRewake] | first' 'true'
+wired "autonomy-gate onFailure" '[.hooks.PreToolUse[].hooks[] | select(.command | test("autonomy-gate.sh")) | .onFailure] | first' 'block'
+wired "gate-self-merge onFailure" '[.hooks.PreToolUse[].hooks[] | select(.command | test("gate-self-merge.sh")) | .onFailure] | first' 'block'
 exit $fail
