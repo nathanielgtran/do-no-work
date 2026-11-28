@@ -26,12 +26,14 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash ~/.claude/hooks/autonomy-gate.sh"
+            "command": "bash ~/.claude/hooks/autonomy-gate.sh",
+            "onFailure": "block"
           },
           {
             "type": "command",
             "command": "bash ~/.claude/hooks/gate-self-merge.sh",
-            "if": "Bash(gh pr merge:*)"
+            "if": "Bash(gh pr merge:*)",
+            "onFailure": "block"
           },
           {
             "type": "command",
@@ -110,8 +112,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "jq -r '.tool_input.command' | { read -r cmd; echo \"$cmd\" | grep -q 'gh pr create' && echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"A PR was just created. Automatically spawn a sub-agent to review the PR changes — the review sub-agent MUST use model sonnet (Agent tool with model: sonnet). Run git diff against the base branch. Review for: bugs, security issues, missing tests, code quality problems, and CLAUDE.md rule compliance. Present a concise review summary to the user. If the review passes (no must-fix issues), apply the REVIEWED label: gh pr edit --add-label REVIEWED. If issues are found, fix them, push fix commits, then re-review and apply the label only once all issues are resolved. After applying the label, do NOT merge immediately — first wait for CI to pass: run gh pr checks <pr-number> --watch --fail-fast and only once the ci check is green, merge with gh pr merge --squash --delete-branch. If CI fails, fix the issues, push, and re-check; never merge a red PR.\"}}' || true; }",
-            "statusMessage": "Checking for PR creation..."
+            "command": "bash ~/.claude/hooks/post-pr-create.sh",
+            "if": "Bash(gh pr create:*)",
+            "statusMessage": "Checking PR review path..."
           },
           {
             "type": "command",
@@ -121,13 +124,14 @@
         ]
       },
       {
-        "matcher": "Write|Edit",
+        "matcher": "Write|Edit|MultiEdit",
         "hooks": [
           {
             "type": "command",
             "command": "bash ~/.claude/hooks/go-check.sh",
-            "timeout": 120,
-            "statusMessage": "Running Go tests + lint..."
+            "async": true,
+            "asyncRewake": true,
+            "timeout": 180
           }
         ]
       }

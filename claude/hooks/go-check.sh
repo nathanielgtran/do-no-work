@@ -1,8 +1,10 @@
 #!/bin/bash
+# PostToolUse hook, wired async + asyncRewake: silent on success; on failure prints a report to
+# stderr and exits 2 so Claude Code wakes the session with it. Tests stay with stop-gate.
 set -uo pipefail
-export PATH="/usr/local/go/bin:$HOME/go/bin:$PATH"
+export PATH="$PATH:/usr/local/go/bin:$HOME/go/bin"
 
-FILE=$(jq -r '.tool_input.file_path')
+FILE=$(jq -r '.tool_input.file_path // empty')
 
 [[ "$FILE" == *.go ]] || exit 0
 
@@ -28,8 +30,9 @@ timeout() {
   fi
 }
 
-if ! TEST_OUT=$(timeout 90 go test "$PKG" 2>&1); then
-  PROBLEMS+="TEST FAILURES ($PKG):\n$(printf '%s\n' "$TEST_OUT" | clip)\n\n"
+FMT_OUT=$(gofmt -l "$FILE" 2>&1)
+if [ -n "$FMT_OUT" ]; then
+  PROBLEMS+="FORMAT ISSUES ($PKG), run gofmt -w:\n$(printf '%s\n' "$FMT_OUT" | clip)\n\n"
 fi
 
 if ! VET_OUT=$(go vet "$PKG" 2>&1); then
@@ -42,9 +45,6 @@ if command -v golangci-lint >/dev/null 2>&1; then
   fi
 fi
 
-if [ -z "$PROBLEMS" ]; then
-  echo "{\"systemMessage\":\"go test + vet + lint passed ($PKG)\"}"
-else
-  ESCAPED=$(echo -e "$PROBLEMS" | jq -Rs .)
-  echo "{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":$ESCAPED}}"
-fi
+[ -z "$PROBLEMS" ] && exit 0
+printf '%b' "$PROBLEMS" >&2
+exit 2

@@ -1,0 +1,1 @@
+post-pr-create hook replaces the inline PR review prompt (CI claude-review labels, the session never does); go-check runs async without go test and wakes Claude on failure; stop-gate skips the check when the tree matches the last passing run; settings example adds onFailure block on the merge and autonomy guards
