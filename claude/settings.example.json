@@ -10,7 +10,9 @@
       "Edit(~/.claude/settings.json)",
       "Edit(~/.claude/settings.local.json)",
       "Edit(~/.claude/autonomy-level)",
-      "Write(~/.claude/autonomy-level)",
+      "Write(~/.claude/autonomy-level)"
+    ],
+    "ask": [
       "Edit(~/.claude/hooks/**)",
       "Write(~/.claude/hooks/**)",
       "Edit(~/Github/do-no-work/claude/hooks/**)",

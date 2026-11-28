@@ -25,7 +25,7 @@ dst_for() {
     home/ohmyposh-theme.json) echo "$HOME/.config/ohmyposh/theme.json" ;;
     home/bashrc.d/*) rest="${rel#home/bashrc.d/}"; flat "$rest" && echo "$HOME/.config/dotfiles/$rest" ;;
     bin/*) rest="${rel#bin/}"; flat "$rest" && echo "$HOME/.local/bin/$rest" ;;
-    claude/hooks/*.sh | claude/commands/*.md | claude/agents/*.md)
+    claude/hooks/*.sh | claude/hooks/*.py | claude/commands/*.md | claude/agents/*.md)
       rest="${rel#claude/*/}"; flat "$rest" && echo "$c/${rel#claude/}" ;;
     *) return 1 ;;
   esac
@@ -79,7 +79,7 @@ skill_names() {
 main() {
   local rel name
   for rel in home/gitconfig home/gitignore_global home/ohmyposh-theme.json home/bashrc.d/dotfiles.sh; do emit_rel "$rel"; done
-  for rel in $(cd "$REPO" && ls -d bin/* claude/hooks/*.sh claude/commands/*.md claude/agents/*.md 2>/dev/null); do emit_rel "$rel"; done
+  for rel in $(cd "$REPO" && ls -d bin/* claude/hooks/*.sh claude/hooks/*.py claude/commands/*.md claude/agents/*.md 2>/dev/null); do emit_rel "$rel"; done
   if [ -d "$OV" ]; then
     while IFS= read -r rel; do
       [ -e "$REPO/$rel" ] || emit_rel "$rel"

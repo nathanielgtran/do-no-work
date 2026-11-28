@@ -25,7 +25,7 @@ To disable any hook, delete its entry from `~/.claude/settings.json` (the instal
 
 | Hook | Event | Matcher | Decision | Purpose |
 |---|---|---|---|---|
-| [`autonomy-gate`](#autonomy-gate) | PreToolUse | `Bash` | deny, ask | Block writes to the hooks and the autonomy dial; block push and merge when the dial is `less` |
+| [`autonomy-gate`](#autonomy-gate) | PreToolUse | `Bash` | deny, ask | Block writes to the autonomy dial and ask before writes to the hooks; block git hook bypasses (`--no-verify`, `SKIP=`), push or merge to `main`/`master`, and any push or merge when the dial is `less` |
 | [`gate-self-merge`](#gate-self-merge) | PreToolUse | `Bash`, `if: Bash(gh pr merge:*)` | allow, ask | Allow a merge only when the PR has `REVIEWED` and all checks are green |
 | [`openspec-autonomy`](#openspec-autonomy) | PreToolUse | `Bash` | allow (else no opinion) | Skip prompts for reversible commands in OpenSpec repos |
 | [`protect-lint-config`](#protect-lint-config) | PreToolUse | `Edit\|Write\|MultiEdit` | ask | Ask before lint, format or type-check config changes |
@@ -39,10 +39,10 @@ To disable any hook, delete its entry from `~/.claude/settings.json` (the instal
 | [`flip-todo-on-merge.sh`](#flip-todo-on-merge) | PostToolUse | `Bash` | none | Tick the matching TODO.md line after a merge |
 
 ### `autonomy-gate`
-**What:** Parses every Bash command, denies writes to `~/.claude/autonomy-level`, `~/.claude/hooks/` and this repo's `claude/hooks/`, and in `less` mode denies `git push` and `gh pr merge` (including `gh api ... merge`).  **When it runs:** PreToolUse on every Bash call, no `if` filter, so `git -C`, `cd && git push` and `VAR=1 git push` are all seen.
-**Example:** `echo x > ~/.claude/hooks/a.sh` is denied; `cat ~/.claude/hooks/a.sh` passes. With the dial at `less`, `git push origin feat` is denied. If `jq` cannot parse the input or the level file is unreadable, it asks instead of passing.
-**Configure / disable:** Level lives in `~/.claude/autonomy-level` (`full` or `less`; missing means `full`). The tamper guard applies at both levels. Remove the `autonomy-gate.sh` entry under `PreToolUse` > `Bash` to disable. A literal `$HOME/...` target is denied because it cannot be resolved statically.
-**Source:** [`claude/hooks/autonomy-gate.sh`](../claude/hooks/autonomy-gate.sh)
+**What:** Parses every Bash command, denies writes to `~/.claude/autonomy-level`, asks before writes to `~/.claude/hooks/` and this repo's `claude/hooks/`, denies git hook bypasses (`--no-verify`, `commit -n`, `core.hooksPath`, `SKIP=`, `HUSKY=`), and passes the command to `push-guard.py`, which normalises refspecs, `-C`, `-c`, wrappers and `gh api` to deny push or merge to `main`/`master` at every level and any push or merge in `less` mode.  **When it runs:** PreToolUse on every Bash call, no `if` filter, so `git -C`, `cd && git push` and `VAR=1 git push` are all seen.
+**Example:** `echo x > ~/.claude/autonomy-level` is denied, `echo x > ~/.claude/hooks/a.sh` prompts; `cat ~/.claude/hooks/a.sh` passes. With the dial at `less`, `git push origin feat` is denied. `git push origin HEAD:main` and `git commit --no-verify` are denied at both levels; `git commit -m "mention --no-verify"` passes. If `jq` cannot parse the input, the level file is unreadable or `push-guard.py` fails, it asks instead of passing.
+**Configure / disable:** Level lives in `~/.claude/autonomy-level` (`full` or `less`; missing means `full`). The tamper guard applies at both levels. Remove the `autonomy-gate.sh` entry under `PreToolUse` > `Bash` to disable. A literal `$HOME/...` target is denied because it cannot be resolved statically. Repos that push straight to main by design go one absolute path per line in `~/.claude/hooks/push-main-allow.txt`.
+**Source:** [`claude/hooks/autonomy-gate.sh`](../claude/hooks/autonomy-gate.sh), [`claude/hooks/push-guard.py`](../claude/hooks/push-guard.py)
 
 ### `gate-self-merge`
 **What:** For `gh pr merge`, reads the PR's labels and the latest run of each check, and allows only when `REVIEWED` is present, there is at least one check, and none failed or are pending. Everything else asks.  **When it runs:** PreToolUse on Bash, filtered to `gh pr merge` by the settings `if`; the script also exits early for other commands.
@@ -401,7 +401,7 @@ Helpers for the engraph knowledge-graph MCP server over a vault of hardlinked ma
 ## Settings example
 
 ### `settings.example.json`
-**What:** The wiring for everything above. Sections: `permissions.deny` (rm, sudo, push to main or master, force push, `--admin` merge, edits to settings, the dial and hooks), `hooks` (all hooks above), `statusLine`, `sandbox`, `autoMode.environment`.  **When it runs:** Not installed. Merge `hooks`, `permissions` and `statusLine` into `~/.claude/settings.json` by hand.
+**What:** The wiring for everything above. Sections: `permissions.deny` (rm, sudo, push to main or master, force push, `--admin` merge, edits to settings and the dial), `permissions.ask` (edits to hooks), `hooks` (all hooks above), `statusLine`, `sandbox`, `autoMode.environment`.  **When it runs:** Not installed. Merge `hooks`, `permissions` and `statusLine` into `~/.claude/settings.json` by hand.
 **Example:** The sandbox block turns on the OS sandbox with `denyRead` for `~/.password-store`, `~/.gnupg`, `~/.ssh` and a strict network allowlist; `autoMode.environment` starts with `$defaults` plus your own lines (user settings only).
 **Configure / disable:** Replace the placeholder registry domain and `homeserver.local`. Keep the deny block if you wire `openspec-autonomy`. Remove any hook entry to disable that hook.
 **Source:** [`claude/settings.example.json`](../claude/settings.example.json)

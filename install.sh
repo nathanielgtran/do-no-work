@@ -193,7 +193,7 @@ install_upstream_skills() {
 if [ "$RECORD" = 1 ]; then record_overlay; exit 0; fi
 if [ -n "$SEED" ]; then seed_overlay "$SEED"; seed_report; exit 0; fi
 if [ "$DEPS" = 1 ]; then install_deps; install_cli_tools; fi
-chmod +x "$REPO"/bin/* "$REPO"/claude/hooks/*.sh
+chmod +x "$REPO"/bin/* "$REPO"/claude/hooks/*.sh "$REPO"/claude/hooks/*.py
 place_manifest
 install_identity
 install_rc

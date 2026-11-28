@@ -1,0 +1,1 @@
+autonomy-gate denies push or merge to main/master at every dial level via the shipped `push-guard.py` normaliser (refspecs, `-C`, `-c`, wrappers) and denies git hook bypasses (`--no-verify`, `commit -n`, `core.hooksPath`, `SKIP=`, `HUSKY=`); hook edits move from deny to ask (the dial stays deny); the installer manages `claude/hooks/*.py`
