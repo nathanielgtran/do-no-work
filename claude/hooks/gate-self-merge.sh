@@ -1,9 +1,10 @@
 #!/bin/bash
 # Auto-ALLOW `gh pr merge` only if the PR has the REVIEWED label AND no failing CI.
 set -uo pipefail
-cmd=$(jq -r '.tool_input.command // ""' 2>/dev/null)
+input=$(cat)
+decision() { jq -nc --arg d "$1" --arg r "$2" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:$d,permissionDecisionReason:$r}}'; exit 0; }
+cmd=$(printf '%s' "$input" | python3 "$(dirname "$0")/push-guard.py" --strip) || decision ask "gate-self-merge: push-guard --strip failed"
 case "$cmd" in *"gh pr merge"*) ;; *) exit 0 ;; esac
-decision() { printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"%s","permissionDecisionReason":"%s"}}\n' "$1" "$2"; exit 0; }
 [ "$(printf '%s' "$cmd" | grep -oE 'gh[[:space:]]+pr[[:space:]]+merge' | wc -l)" -eq 1 ] || decision ask "one gh pr merge per command"
 printf '%s' "$cmd" | grep -Eq '(^|[;&|[:space:]])(cd|pushd)[[:space:]]|git[[:space:]]+-C' && decision ask "no cd/-C with gh pr merge: pass -R owner/repo instead"
 num=$(printf '%s' "$cmd" | grep -oE 'merge[[:space:]]+[0-9]+' | grep -oE '[0-9]+' | head -1)

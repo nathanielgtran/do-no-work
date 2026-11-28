@@ -83,6 +83,16 @@ expect autonomy-gate.sh none 'git commit -m "block --no-verify and -n bypasses"'
 expect autonomy-gate.sh none 'git push -n origin feat-1'
 expect autonomy-gate.sh none 'git commit -am x'
 
+expect autonomy-gate.sh none  $'cat > /tmp/x.md <<\'EOF\'\nnever git commit --no-verify, SKIP=gitleaks or git push origin main\nEOF'
+expect autonomy-gate.sh none  $'python3 - <<\'PY\'\ns = \'\'\'unterminated\nPY'
+expect autonomy-gate.sh none  $'git commit -F - <<EOF\nmention --no-verify here\nEOF'
+expect autonomy-gate.sh deny  $'bash <<EOF\ngit push origin HEAD:main\nEOF'
+expect autonomy-gate.sh deny  $'cat <<EOF | sh\ngit push origin main\nEOF'
+expect autonomy-gate.sh deny  $'cat > x <<EOF\ndata\nEOF\ngit push origin main'
+expect autonomy-gate.sh deny  $'cat > x <<EOF\ndata\nEOF\ngit commit --no-verify -m x'
+expect gate-self-merge.sh none $'cd /x && cat > d.md <<EOF\nrun gh pr merge 5 when green\nEOF'
+expect gate-self-merge.sh ask  $'cat > d.md <<EOF\nx\nEOF\ncd /x && gh pr merge 5'
+
 echo less > "$HOME/.claude/autonomy-level"
 expect autonomy-gate.sh deny 'git push origin feat-1'
 expect autonomy-gate.sh deny 'git -c a=b push origin feat-1'

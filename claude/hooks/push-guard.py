@@ -321,11 +321,39 @@ def do_gh(args, env, ctx, depth):
         ctx.add("MAIN", "gh api git/refs write targets main/master")
 
 
+HEREDOC = re.compile(r"(?<!<)<<(-?)[ \t]*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\2")
+SHELL_FED = SHELLS | {"ssh", "eval", "source", "."}
+
+
+def heredoc_runs_as_shell(line):
+    return any(os.path.basename(w) in SHELL_FED for w in re.split(r"[\s;&|()`]+", line))
+
+
+def strip_heredocs(cmd):
+    """Drop heredoc bodies that are data (cat, tee, python...); keep bodies fed to a shell."""
+    out, pending = [], []
+    for line in cmd.split("\n"):
+        if pending:
+            delim, dash, keep = pending[0]
+            if (line.lstrip("\t") if dash else line) == delim:
+                pending.pop(0)
+            elif keep:
+                out.append(line)
+            continue
+        out.append(line)
+        for m in HEREDOC.finditer(line):
+            pending.append((m.group(3), m.group(1) == "-", heredoc_runs_as_shell(line)))
+    return "\n".join(out)
+
+
 def main():
     less = "--less" in sys.argv
     try:
         d = json.load(sys.stdin)
-        cmd = (d.get("tool_input") or {}).get("command") or ""
+        cmd = strip_heredocs((d.get("tool_input") or {}).get("command") or "")
+        if "--strip" in sys.argv:
+            print(cmd)
+            return
         ctx = Ctx(d.get("cwd") or os.getcwd(), less)
         scan(cmd, ctx, 0)
     except Exception as e:  # fail closed: reported as ASK, never silently passed

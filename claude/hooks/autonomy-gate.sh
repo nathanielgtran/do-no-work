@@ -250,13 +250,18 @@ hook_bypass() {
   done
   return 1
 }
-hook_bypass "$cmd"; hb=$?
+GUARD="$(dirname "$0")/push-guard.py"
+scmd=$(printf '%s' "$input" | python3 "$GUARD" --strip) || ask "autonomy-gate: push-guard --strip failed — prompting."
+hook_bypass "$scmd"; hb=$?
 [ "$hb" = 0 ] && deny "autonomy-gate: git hook bypass blocked (--no-verify, commit -n, core.hooksPath, SKIP=, HUSKY=). Fix what the hook flags instead."
-[ "$hb" = 2 ] && ask "autonomy-gate: could not tokenize command — prompting."
+if [ "$hb" = 2 ] && printf '%s' "$scmd" | grep -Eq 'no-verify|hooksPath|hookspath|SKIP=|HUSKY=|commit.*[[:space:]]-[a-z]*n'; then
+  ask "autonomy-gate: could not tokenize a command that mentions a git hook bypass — prompting."
+fi
 
 # Push/merge to main (ALL levels) and any push/merge (less) via the shared normaliser.
+printf '%s' "$scmd" | grep -Eq 'push|merge|api|graphql|update-ref' || exit 0
 gflag=(); [ "$level" = "less" ] && gflag=(--less)
-verdict=$(printf '%s' "$input" | python3 "$(dirname "$0")/push-guard.py" ${gflag[@]+"${gflag[@]}"}) \
+verdict=$(printf '%s' "$input" | python3 "$GUARD" ${gflag[@]+"${gflag[@]}"}) \
   || ask "autonomy-gate: push-guard failed to run — prompting."
 kind=${verdict%%$'\t'*}; why=${verdict#*$'\t'}
 case $kind in

@@ -1,0 +1,1 @@
+autonomy-gate and gate-self-merge ignore data heredoc bodies (`push-guard.py --strip`), run the push normaliser only when push/merge keywords appear, and ask on an untokenizable command only when it mentions a hook bypass, so heredocs and scripts stop prompting
