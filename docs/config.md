@@ -82,6 +82,24 @@ This repo's own caller of `claude-review`.
 
 </details>
 
+### `dependabot`
+
+Keeps the SHA-pinned GitHub Actions current, so old pins don't break when GitHub retires a Node runtime.
+
+| When it runs | Monthly; one grouped PR for all actions |
+|---|---|
+| **Disable** | Delete the file |
+| **Source** | [`.github/dependabot.yml`](../.github/dependabot.yml) |
+
+<details>
+<summary>Details and examples</summary>
+
+- Ecosystem `github-actions` only. Updates keep the pin-by-SHA style with a version comment.
+- PRs go through CI and `claude-review` like any other; merge them on `REVIEWED` and green.
+- The `claude-review` secret `CLAUDE_CODE_OAUTH_TOKEN` comes from `claude setup-token`, which lasts one year. Renew it before it expires or reviews fail and nothing gets `REVIEWED`.
+
+</details>
+
 ### `claude-review-caller.yml` (example)
 
 Template to copy into another repo as `.github/workflows/review.yml`.
