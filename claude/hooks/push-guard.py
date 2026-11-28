@@ -362,24 +362,34 @@ def heredoc_ops(line):
     return ops
 
 
+def expansions(body):
+    """Commands an unquoted heredoc body runs via $(...) or backticks. All of the body
+    when nesting defeats the simple extraction, so nothing is hidden."""
+    text = "\n".join(body)
+    subs = re.findall(r"\$\(([^()]*)\)", text) + re.findall(r"`([^`]*)`", text)
+    if text.count("$(") != len(re.findall(r"\$\([^()]*\)", text)):
+        return body
+    return [s for s in subs if s.strip()]
+
+
 def strip_heredocs(cmd):
     """Drop heredoc bodies that are data (cat, tee, python...); keep bodies fed to a shell.
-    A body whose terminator never appears is kept, so a fake marker cannot hide commands."""
+    An unquoted body keeps its command substitutions, which bash runs. A body whose
+    terminator never appears is kept, so a fake marker cannot hide commands."""
     out, pending, body = [], [], []
     for line in cmd.split("\n"):
         if pending:
-            delim, dash, keep = pending[0]
+            delim, dash, keep, quoted = pending[0]
             if (line.lstrip("\t") if dash else line) == delim:
                 pending.pop(0)
-                if keep:
-                    out.extend(body)
+                out.extend(body if keep else [] if quoted else expansions(body))
                 body = []
             else:
                 body.append(line)
             continue
         out.append(line)
         for m in heredoc_ops(line):
-            pending.append((m.group(3), m.group(1) == "-", heredoc_runs_as_shell(line)))
+            pending.append((m.group(3), m.group(1) == "-", heredoc_runs_as_shell(line), bool(m.group(2))))
     out.extend(body)
     return "\n".join(out)
 
