@@ -2,6 +2,10 @@
 # Auto-ALLOW `gh pr merge` only if the PR has the REVIEWED label AND no failing CI.
 set -uo pipefail
 input=$(cat)
+if ! command -v jq >/dev/null 2>&1 || ! command -v python3 >/dev/null 2>&1; then
+  printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"gate-self-merge: jq or python3 missing, prompting."}}'
+  exit 0
+fi
 decision() { jq -nc --arg d "$1" --arg r "$2" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:$d,permissionDecisionReason:$r}}'; exit 0; }
 cmd=$(printf '%s' "$input" | python3 "$(dirname "$0")/push-guard.py" --strip) || decision ask "gate-self-merge: push-guard --strip failed"
 case "$cmd" in *"gh pr merge"*) ;; *) exit 0 ;; esac

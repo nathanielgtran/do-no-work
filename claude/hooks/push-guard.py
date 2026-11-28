@@ -149,10 +149,44 @@ def resolve_cwd(base, d):
     return d if os.path.isabs(d) else os.path.join(base, d)
 
 
+COMMIT_VAL_OPTS = {"-m", "-F", "-C", "-c", "-t", "--message", "--file", "--reuse-message", "--reedit-message", "--template"}
+
+
+def hook_env(env, ctx):
+    if "SKIP" in env or "HUSKY" in env:
+        ctx.add("HOOK", "SKIP=/HUSKY= env prefix skips git hooks")
+    if any("hookspath" in v.lower() for k, v in env.items() if k == "GIT_CONFIG_PARAMETERS" or k.startswith("GIT_CONFIG_KEY_")):
+        ctx.add("HOOK", "core.hooksPath set through GIT_CONFIG_* env")
+
+
+def hook_args(sub, rest, ctx):
+    skip = False
+    for a in rest:
+        if skip:
+            skip = False; continue
+        if a == "--":
+            return
+        if a.startswith("--no-v") and "--no-verify".startswith(a.split("=")[0]):
+            ctx.add("HOOK", f"git {sub} {a} skips git hooks"); return
+        if sub == "config" and a.lower().startswith("core.hookspath") and not {"--get", "--list", "-l"} & set(rest):
+            ctx.add("HOOK", "git config core.hooksPath redirects git hooks"); return
+        if sub != "commit":
+            continue
+        if a in COMMIT_VAL_OPTS:
+            skip = True
+        elif re.match(r"^-[A-Za-z]+$", a) and "n" in re.split(r"[umFCcSt]", a[1:], maxsplit=1)[0]:
+            ctx.add("HOOK", f"git commit {a} (-n) skips git hooks"); return
+
+
 def do_git(args, env, ctx, depth):
     cwd, gitdir, aliases, i = ctx.cwd, env.get("GIT_DIR"), {}, 0
+    hook_env(env, ctx)
     while i < len(args) and args[i].startswith("-"):
         t = args[i]
+        if t.startswith("-c") and len(t) > 2:
+            args = args[:i] + ["-c", t[2:]] + args[i + 1:]; t = "-c"
+        if t.startswith("--config-env="):
+            args = args[:i] + ["--config-env", t.split("=", 1)[1]] + args[i + 1:]; t = "--config-env"
         if t in ("-c", "-C", "--git-dir", "--work-tree", "--namespace", "--super-prefix", "--config-env"):
             if i + 1 >= len(args):
                 raise ValueError(f"git {t} missing value")
@@ -161,6 +195,8 @@ def do_git(args, env, ctx, depth):
                 cwd = resolve_cwd(cwd, v)
             elif t == "--git-dir":
                 gitdir = v
+            elif t in ("-c", "--config-env") and v.lower().startswith("core.hookspath"):
+                ctx.add("HOOK", f"git {t} core.hooksPath redirects git hooks")
             elif t == "-c" and v.lower().startswith("alias."):
                 k, _, val = v[6:].partition("="); aliases[k] = val
             i += 2
@@ -179,6 +215,12 @@ def do_git(args, env, ctx, depth):
                 return
             parts = shlex.split(val)
             sub, rest = (parts[0], parts[1:] + rest) if parts else (sub, rest)
+    hook_args(sub, rest, ctx)
+    if sub == "update-ref":
+        refs = [a for a in rest if not a.startswith("-")]
+        if refs and norm(refs[0]) in PROT:
+            ctx.add("MAIN", f"git update-ref {refs[0]} rewrites main/master")
+        return
     if sub != "push":
         return
     if ctx.less:
@@ -330,7 +372,8 @@ def heredoc_runs_as_shell(line):
     continues onto the next one (trailing pipe, && or backslash), where it may be named."""
     if re.search(r"(\||&&|\\)\s*$", line):
         return True
-    return any(os.path.basename(w) in SHELL_FED for w in re.split(r"[\s;&|()`]+", line))
+    bare = re.sub(r"'[^']*'|\"(?:\\.|[^\"\\])*\"", " ", line)
+    return any(os.path.basename(w) in SHELL_FED for w in re.split(r"[\s;&|()`]+", bare))
 
 
 def heredoc_ops(line):
@@ -398,7 +441,7 @@ def main():
     less = "--less" in sys.argv
     try:
         d = json.load(sys.stdin)
-        cmd = strip_heredocs((d.get("tool_input") or {}).get("command") or "")
+        cmd = strip_heredocs((d.get("tool_input") or {}).get("command") or "").replace("\\\n", "")
         if "--strip" in sys.argv:
             print(cmd)
             return
@@ -407,7 +450,7 @@ def main():
     except Exception as e:  # fail closed: reported as ASK, never silently passed
         print(f"ASK\tpush-guard could not parse command: {type(e).__name__}: {e}".replace('"', "'"))
         return
-    for kind in ("MAIN", "PUSH", "MERGE", "ASK"):
+    for kind in ("MAIN", "HOOK", "PUSH", "MERGE", "ASK"):
         for k, why in ctx.found:
             if k == kind:
                 print(f"{k}\t{why}"); return

@@ -4,6 +4,10 @@
 set -uo pipefail
 
 input=$(cat)
+if ! command -v jq >/dev/null 2>&1 || ! command -v python3 >/dev/null 2>&1; then
+  printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"autonomy-gate: jq or python3 missing, prompting."}}'
+  exit 0
+fi
 cmd=$(printf '%s' "$input" | jq -r '.tool_input.command // ""' 2>/dev/null); jq_rc=$?
 
 emit() { jq -nc --arg d "$1" --arg r "$2" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:$d,permissionDecisionReason:$r}}'; exit 0; }
@@ -16,7 +20,7 @@ ask()  { emit ask  "$1"; }
 # Tamper guard (ALL levels): deny Bash that WRITES the dial or hooks. Checks write TARGETS
 # (redirect target, mutating-command operands, sed -i files, a cd into the dir), not mere
 # mentions. A literal $HOME/.claude/... target is denied: $HOME cannot be resolved statically.
-TGT_RE='\.claude/(autonomy-level|hooks)|do-no-work/claude/hooks(/|$)|(^|/)autonomy-level'
+TGT_RE='\.claude/(autonomy-level([^-.A-Za-z0-9_]|$)|hooks)|do-no-work/claude/hooks(/|$)|(^|/)autonomy-level([^-.A-Za-z0-9_]|$)'
 SEP=$'\001S'; RDR=$'\001R'; CWDMODE=none; CI=0
 
 flush() { [ "$have" = 1 ] && TOK[${#TOK[@]}]=$cur; cur=""; have=0; }
@@ -208,7 +212,9 @@ tamper_scan() {
   return 1
 }
 
-if tamper_scan "$cmd"; then
+GUARD="$(dirname "$0")/push-guard.py"
+scmd=$(printf '%s' "$input" | python3 "$GUARD" --strip) || ask "autonomy-gate: push-guard --strip failed, prompting."
+if tamper_scan "$scmd"; then
   case $cmd in
     *autonomy-level*|*'$HOME'*|*'${HOME}'*) deny "autonomy-gate: refusing to WRITE the autonomy dial from Bash. The user flips it with 'go less' / 'go full'." ;;
     *) ask "autonomy-gate: this writes a guard hook. Approve only if you asked for this hook change." ;;
@@ -216,54 +222,20 @@ if tamper_scan "$cmd"; then
 fi
 
 # Read level. File absent -> default full (documented). Unreadable -> fail-closed (ask).
-f="$HOME/.claude/autonomy-level"
+f="${HOME:-}/.claude/autonomy-level"
 if [ -e "$f" ]; then
   level=$(tr -d '[:space:]' < "$f" 2>/dev/null) || ask "autonomy-gate: state file unreadable — prompting."
 else
   level=full
 fi
 
-# Git hook bypass (ALL levels): gitleaks, commit-msg and pre-push hooks must run.
-# Token-based so a quoted commit message that mentions --no-verify is not a match.
-hook_bypass() {
-  local t git=0 sub="" skip=0
-  tokenize "$1" || return 2
-  for t in "${TOK[@]}"; do
-    if [ "$t" = "$SEP" ]; then git=0; sub=""; skip=0; continue; fi
-    if [ "$skip" = 1 ]; then
-      skip=0
-      case $t in core.hooksPath=*|core.hookspath=*) return 0;; esac
-      continue
-    fi
-    if [ "$git" = 0 ]; then
-      case $t in SKIP=*|HUSKY=*) return 0;; esac
-      [ "${t##*/}" = git ] && git=1
-      continue
-    fi
-    if [ -z "$sub" ]; then
-      case $t in -C|-c|--git-dir|--work-tree) skip=1;; -*) ;; *) sub=$t;; esac
-      continue
-    fi
-    case "$sub:$t" in
-      *:--no-verify|commit:-n*|commit:-[!-]*n*|config:core.hooksPath|config:core.hookspath) return 0;;
-    esac
-  done
-  return 1
-}
-GUARD="$(dirname "$0")/push-guard.py"
-scmd=$(printf '%s' "$input" | python3 "$GUARD" --strip) || ask "autonomy-gate: push-guard --strip failed — prompting."
-hook_bypass "$scmd"; hb=$?
-[ "$hb" = 0 ] && deny "autonomy-gate: git hook bypass blocked (--no-verify, commit -n, core.hooksPath, SKIP=, HUSKY=). Fix what the hook flags instead."
 # Keyword checks read the command with quotes and backslashes removed, so `git "pu"sh`
 # still matches; ANSI-C `$'...'` quoting can spell anything, so it always counts as a match.
 flat=$(printf '%s' "$scmd" | tr -d "\"'\\\\")
 case $scmd in *"\$'"*) ansi=1 ;; *) ansi=0 ;; esac
-if [ "$hb" = 2 ] && { [ "$ansi" = 1 ] || printf '%s' "$flat" | grep -Eq 'no-verify|hooksPath|hookspath|SKIP=|HUSKY=|commit.*[[:space:]]-[a-z]*n'; }; then
-  ask "autonomy-gate: could not tokenize a command that mentions a git hook bypass — prompting."
-fi
 
-# Push/merge to main (ALL levels) and any push/merge (less) via the shared normaliser.
-[ "$ansi" = 1 ] || printf '%s' "$flat" | grep -Eq 'push|merge|api|graphql|update-ref' || exit 0
+# Push/merge to main and git hook bypasses (ALL levels), any push/merge (less), via the shared normaliser.
+[ "$ansi" = 1 ] || printf '%s' "$flat" | grep -Eiq 'push|merge|api|graphql|update-ref|commit|verify|hookspath|SKIP=|HUSKY=|GIT_CONFIG|alias' || exit 0
 gflag=(); [ "$level" = "less" ] && gflag=(--less)
 verdict=$(printf '%s' "$input" | python3 "$GUARD" ${gflag[@]+"${gflag[@]}"}) \
   || ask "autonomy-gate: push-guard failed to run — prompting."
@@ -271,6 +243,7 @@ kind=${verdict%%$'\t'*}; why=${verdict#*$'\t'}
 case $kind in
   OK) exit 0 ;;
   MAIN) deny "autonomy-gate: $why. Never push or merge to main/master; open a PR." ;;
+  HOOK) deny "autonomy-gate: $why. Git hooks (gitleaks, commit-msg) must run; fix what they flag instead." ;;
   PUSH) deny "autonomy=less: PUSH blocked ($why). The user pushes manually in less mode. Say 'go full' to restore." ;;
   MERGE) deny "autonomy=less: MERGE blocked ($why). Route this PR to a human. Say 'go full' to restore." ;;
   *) ask "autonomy-gate: $why" ;;
