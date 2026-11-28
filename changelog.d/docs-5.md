@@ -1,0 +1,1 @@
+autobuild: Scout ranks by the repo's `## Outcome` and `## Signals`, challenges one belief against raw data and raises the bar per pick; builders use the named professional instrument; review checks stray agent edits and adds an outside reviewer judge; REVIEWED comes from the claude-review check, never self-applied

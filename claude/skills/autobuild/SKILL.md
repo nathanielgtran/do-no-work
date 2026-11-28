@@ -21,7 +21,8 @@ milestones. Every hard rule in `~/CLAUDE.md` still applies. Hands-off changes wh
    Outside one, propose the features and ask.
 2. Autonomy is not "go less". If push or merge is blocked, build up to open PRs and stop there.
 3. You know where the repo runs live, if anywhere: a run worktree, a deploy target or a CLI skill. Read
-   `REPOS.md`, the repo's `TODO.md`, `PLAN.md` `## Current State`, `.claude/HANDOFF.md`.
+   `REPOS.md`, the repo's `TODO.md`, `PLAN.md` `## Current State` + `## Outcome` + `## Signals`,
+   `.claude/HANDOFF.md`.
 
 ## 1. Scout (you, not agents; keep it short)
 
@@ -31,13 +32,32 @@ gh pr list -R <owner/repo>; gh issue list -R <owner/repo>
 ls openspec/changes; sed -n '1,80p' TODO.md
 ```
 
-Sources of good features, in priority order:
+**Start from the outcome, not the task list (altitude).** Read `PLAN.md` `## Outcome` (the one
+result the repo exists to move) and `## Signals` (the live data that measures it: an MCP tool,
+logs, analytics, a read-only db copy). Pull the signal data first. Rank every candidate below by
+how much it moves the outcome, not by TODO order. If a repo has no `## Outcome`/`## Signals` block,
+draft one from `REPOS.md` + memory `project_*`, show the user, and seed it before scouting further.
+
+**Challenge one belief against the raw data (depth).** Name one assumption the repo is built on and
+try to reproduce it from the `## Signals` raw data before picking. If it fails to reproduce, that
+gap is the feature. Example: reproduce spending-app's "borrowing capacity" from raw transactions
+the way a broker would; the difference from what the app shows is the fix.
+
+Sources of good features, after the outcome ranking, in priority order:
 - **Something you just did by hand for the user this session.** A manual step that happened
   twice is the strongest signal.
 - Data the code already parses but no output uses yet (grep the model fields against the
   formatters).
 - TODO.md items marked as gaps (not "verify live" chores).
 - The user's actual goal (memory `project_*`). Ask what would change a decision for them.
+
+**Raise the bar before locking picks (depth).** For each pick, answer Felix Rieseberg's four
+questions and fold the answers into the agent spec: (1) what a field-leading pro would do here that
+you are not asking for; (2) the rawest material they would start from, not what's already digested;
+(3) the specific methods and tools they use (insist on real instruments, not markdown tables where a
+database or statistical model is the professional choice); (4) what, other than you or the model,
+would prove the result right — name a tool or check the builder can run. State the target as an
+unreasonable version (200ms, not "faster") and treat it as solvable.
 
 **Research, every round.** While you scout, run one background research agent (web search, then
 fetch primary sources) on how others solve the candidate problems: official docs, tools with
@@ -80,6 +100,7 @@ self-contained and include:
   1. OpenSpec change first; `openspec validate <id> --strict` clean before code; tick tasks;
      re-validate before the PR.
   2. TDD with behaviour tests; functions of 50 lines or fewer, complexity 10 or less, no swallowed errors, default no comments.
+     Use the professional instrument the Scout spec named (a real database/model/tool where that is what an expert reaches for, not a markdown-table stand-in), and hit the unreasonable target it set rather than an easy one.
   3. Lint, format check and the full test suite green (the repo's commands from REPOS.md).
   4. CHANGELOG line (or `changelog.d/<id>.md` fragment) with the assigned ID, TODO follow-ups, README for new commands or config.
   5. Commit `[NO-TICKET] feat: ...` with no co-author or footer. Push, and open the PR with the fleet template
@@ -104,11 +125,22 @@ For each PR, in merge order (smallest blast radius first):
    - output that looks wrong. Example: a snippet cut mid-word in the agent's own example is a real bug, so fix it.
 
    Fix small issues yourself in that worktree, then commit and push.
+   Before reviewing, run `git status --short` in the worktree: agents leave uncommitted edits
+   (twice so far: TODO items ticked that were still open). Inspect and discard them; never let
+   a later `commit -a` sweep them in.
+
+   **Outside judge (don't let the builder grade itself).** The builder wrote its own Proof, so
+   before you label, spawn one independent `reviewer` agent per PR. Give it the diff and the
+   feature's acceptance (the `## Outcome` it was meant to move), never the builder's own
+   conclusion. Act on real bugs it finds; a disagreement you can't resolve from the diff goes in
+   the report, not a quiet merge. Skip the judge only for a docs-only or baseline PR.
 2. CI: to track every PR across repos at once, run `fleet watch --head '<branch-glob>'` and take merge candidates from `fleet ready` (needs a repo list: `--repos` or `fleet.txt`). Per PR, wait about 25 s after a push before `gh pr checks <N> -R <repo> --watch --interval 15`.
    Checks show "no checks reported" right after a push. Red means fix, never merge.
-3. Label and merge in **separate calls**, one literal PR number each:
-   `gh pr edit <N> -R <repo> --add-label REVIEWED`, then
-   `gh pr merge <N> -R <repo> --squash --delete-branch`.
+3. The `claude-review` CI check applies `REVIEWED` when it passes; never add the label yourself
+   (a repo with a standing self-label grant in `~/CLAUDE.md` is the only exception). Once the
+   label is on and every check is green, merge with one literal PR number:
+   `gh pr merge <N> -R <repo> --squash --delete-branch`. A `claude-review` BLOCK is a red check:
+   fix and push.
 4. Rebase the next PR onto the new main:
    - Resolve CHANGELOG, README and TODO conflicts by keeping both sides.
    - Resolve code conflicts by combining both features, never by dropping one.
