@@ -448,6 +448,8 @@ def main():
         ctx = Ctx(d.get("cwd") or os.getcwd(), less)
         scan(cmd, ctx, 0)
     except Exception as e:  # fail closed: reported as ASK, never silently passed
+        if "--strip" in sys.argv:
+            sys.exit(f"push-guard --strip failed: {type(e).__name__}: {e}")
         print(f"ASK\tpush-guard could not parse command: {type(e).__name__}: {e}".replace('"', "'"))
         return
     for kind in ("MAIN", "HOOK", "PUSH", "MERGE", "ASK"):

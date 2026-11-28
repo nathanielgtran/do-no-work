@@ -44,7 +44,7 @@
 <rect x="212" y="164" width="148" height="76" rx="6" fill="#1C1B19"/>
 <rect x="212" y="164" width="148" height="76" rx="6" fill="#242320" stroke="#E8E5E1" stroke-width="1"/>
 <text x="286" y="194" fill="#E8E5E1" font-size="12" font-weight="600" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif" text-anchor="middle">autonomy-gate</text>
-<text x="286" y="210" fill="#C4BFB8" font-size="9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" text-anchor="middle">tamper scan on writes</text>
+<text x="286" y="210" fill="#C4BFB8" font-size="9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" text-anchor="middle">push-guard: main, hooks</text>
 <text x="286" y="222" fill="#C4BFB8" font-size="9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" text-anchor="middle">less: no push or merge</text>
 <rect x="404" y="164" width="148" height="76" rx="6" fill="#1C1B19"/>
 <rect x="404" y="164" width="148" height="76" rx="6" fill="#242320" stroke="#E8E5E1" stroke-width="1"/>
@@ -69,17 +69,17 @@
 <rect x="212" y="304" width="148" height="76" rx="6" fill="#1C1B19"/>
 <rect x="212" y="304" width="148" height="76" rx="6" fill="#d06a4c" stroke="#D06A4C" stroke-width="1" fill-opacity="0.14"/>
 <text x="286" y="334" fill="#E8E5E1" font-size="12" font-weight="600" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif" text-anchor="middle">DENY</text>
-<text x="286" y="350" fill="#C4BFB8" font-size="9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" text-anchor="middle">write to hooks or dial</text>
-<text x="286" y="362" fill="#C4BFB8" font-size="9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" text-anchor="middle">push/merge while less</text>
+<text x="286" y="350" fill="#C4BFB8" font-size="9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" text-anchor="middle">dial write, push main</text>
+<text x="286" y="362" fill="#C4BFB8" font-size="9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" text-anchor="middle">--no-verify, less push</text>
 <rect x="404" y="304" width="148" height="76" rx="6" fill="#1C1B19"/>
 <rect x="404" y="304" width="148" height="76" rx="6" fill="#242320" stroke="#E8E5E1" stroke-width="1"/>
 <text x="478" y="334" fill="#E8E5E1" font-size="12" font-weight="600" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif" text-anchor="middle">ASK</text>
 <text x="478" y="350" fill="#C4BFB8" font-size="9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" text-anchor="middle">no REVIEWED label</text>
 <text x="478" y="362" fill="#C4BFB8" font-size="9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" text-anchor="middle">red or pending CI</text>
-<text x="596" y="324" fill="#C4BFB8" font-size="14" font-style="italic" font-family="ui-serif, Georgia, 'Times New Roman', serif" text-anchor="start">Deny rules always win. Edit and Write</text>
-<text x="596" y="342" fill="#C4BFB8" font-size="14" font-style="italic" font-family="ui-serif, Georgia, 'Times New Roman', serif" text-anchor="start">take another path: protect-lint-config</text>
-<text x="596" y="360" fill="#C4BFB8" font-size="14" font-style="italic" font-family="ui-serif, Georgia, 'Times New Roman', serif" text-anchor="start">asks on lint or type config; stop-gate</text>
-<text x="596" y="378" fill="#C4BFB8" font-size="14" font-style="italic" font-family="ui-serif, Georgia, 'Times New Roman', serif" text-anchor="start">checks on Stop.</text>
+<text x="596" y="324" fill="#C4BFB8" font-size="14" font-style="italic" font-family="ui-serif, Georgia, 'Times New Roman', serif" text-anchor="start">Deny rules always win. Heredoc data</text>
+<text x="596" y="342" fill="#C4BFB8" font-size="14" font-style="italic" font-family="ui-serif, Georgia, 'Times New Roman', serif" text-anchor="start">is skipped; hook edits ask; lint config</text>
+<text x="596" y="360" fill="#C4BFB8" font-size="14" font-style="italic" font-family="ui-serif, Georgia, 'Times New Roman', serif" text-anchor="start">asks; stop-gate tests at turn end,</text>
+<text x="596" y="378" fill="#C4BFB8" font-size="14" font-style="italic" font-family="ui-serif, Georgia, 'Times New Roman', serif" text-anchor="start">once per change.</text>
 <line x1="20" y1="400" x2="940" y2="400" stroke="#e8e5e1" stroke-width="0.8" stroke-opacity="0.16"/>
 <text x="20" y="420" fill="#9A9590" font-size="8" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" letter-spacing="0.14em">LEGEND</text>
 <rect x="92" y="410" width="24" height="12" rx="3" fill="#242320" stroke="#E8E5E1" stroke-width="1"/>
