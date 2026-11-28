@@ -92,6 +92,7 @@ Everything in this repo, one line each. Click a name for its card: what it does,
 | [`ci`](config.md#ci) | Tests, checks and installs on every PR |
 | [`claude-review`](config.md#claude-review) | Reusable Claude review that applies `REVIEWED` |
 | [`review`](config.md#review) | This repo's caller of `claude-review` |
+| [`dependabot`](config.md#dependabot) | Monthly grouped updates for the SHA-pinned actions |
 | [`claude-review-caller.yml`](config.md#claude-review-calleryml-example) | Caller template for other repos |
 
 ## Settings and templates
