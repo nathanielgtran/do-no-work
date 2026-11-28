@@ -329,20 +329,52 @@ def heredoc_runs_as_shell(line):
     return any(os.path.basename(w) in SHELL_FED for w in re.split(r"[\s;&|()`]+", line))
 
 
+def heredoc_ops(line):
+    """Heredoc operators outside quotes and $((...)) arithmetic, in order."""
+    ops, q, arith, i = [], "", 0, 0
+    while i < len(line):
+        c = line[i]
+        if q:
+            if c == "\\" and q == '"':
+                i += 1
+            elif c == q:
+                q = ""
+        elif c == "\\":
+            i += 1
+        elif c in "'\"":
+            q = c
+        elif line.startswith("((", i):
+            arith += 1; i += 1
+        elif line.startswith("))", i) and arith:
+            arith -= 1; i += 1
+        elif c == "<" and not arith:
+            m = HEREDOC.match(line, i)
+            if m and not line.startswith("<<<", i):
+                ops.append(m)
+                i = m.end(); continue
+        i += 1
+    return ops
+
+
 def strip_heredocs(cmd):
-    """Drop heredoc bodies that are data (cat, tee, python...); keep bodies fed to a shell."""
-    out, pending = [], []
+    """Drop heredoc bodies that are data (cat, tee, python...); keep bodies fed to a shell.
+    A body whose terminator never appears is kept, so a fake marker cannot hide commands."""
+    out, pending, body = [], [], []
     for line in cmd.split("\n"):
         if pending:
             delim, dash, keep = pending[0]
             if (line.lstrip("\t") if dash else line) == delim:
                 pending.pop(0)
-            elif keep:
-                out.append(line)
+                if keep:
+                    out.extend(body)
+                body = []
+            else:
+                body.append(line)
             continue
         out.append(line)
-        for m in HEREDOC.finditer(line):
+        for m in heredoc_ops(line):
             pending.append((m.group(3), m.group(1) == "-", heredoc_runs_as_shell(line)))
+    out.extend(body)
     return "\n".join(out)
 
 

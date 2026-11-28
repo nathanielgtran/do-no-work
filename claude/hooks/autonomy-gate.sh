@@ -254,12 +254,16 @@ GUARD="$(dirname "$0")/push-guard.py"
 scmd=$(printf '%s' "$input" | python3 "$GUARD" --strip) || ask "autonomy-gate: push-guard --strip failed — prompting."
 hook_bypass "$scmd"; hb=$?
 [ "$hb" = 0 ] && deny "autonomy-gate: git hook bypass blocked (--no-verify, commit -n, core.hooksPath, SKIP=, HUSKY=). Fix what the hook flags instead."
-if [ "$hb" = 2 ] && printf '%s' "$scmd" | grep -Eq 'no-verify|hooksPath|hookspath|SKIP=|HUSKY=|commit.*[[:space:]]-[a-z]*n'; then
+# Keyword checks read the command with quotes and backslashes removed, so `git "pu"sh`
+# still matches; ANSI-C `$'...'` quoting can spell anything, so it always counts as a match.
+flat=$(printf '%s' "$scmd" | tr -d "\"'\\\\")
+case $scmd in *"\$'"*) ansi=1 ;; *) ansi=0 ;; esac
+if [ "$hb" = 2 ] && { [ "$ansi" = 1 ] || printf '%s' "$flat" | grep -Eq 'no-verify|hooksPath|hookspath|SKIP=|HUSKY=|commit.*[[:space:]]-[a-z]*n'; }; then
   ask "autonomy-gate: could not tokenize a command that mentions a git hook bypass — prompting."
 fi
 
 # Push/merge to main (ALL levels) and any push/merge (less) via the shared normaliser.
-printf '%s' "$scmd" | grep -Eq 'push|merge|api|graphql|update-ref' || exit 0
+[ "$ansi" = 1 ] || printf '%s' "$flat" | grep -Eq 'push|merge|api|graphql|update-ref' || exit 0
 gflag=(); [ "$level" = "less" ] && gflag=(--less)
 verdict=$(printf '%s' "$input" | python3 "$GUARD" ${gflag[@]+"${gflag[@]}"}) \
   || ask "autonomy-gate: push-guard failed to run — prompting."
