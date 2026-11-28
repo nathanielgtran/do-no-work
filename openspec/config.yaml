@@ -63,7 +63,7 @@ rules:
   tasks:
     - Every behaviour change adds or extends a case in the matching tests/*_test.sh, written before the change.
     - Keep scripts portable to bash 3.2 and BSD tools.
-    - Add the changelog fragment (scripts/changelog.sh next <type>) and keep README.md and docs/REFERENCE.md in step when a script, hook or flag changes.
+    - Add the changelog fragment (scripts/changelog.sh next <type>) and keep README.md, docs/REFERENCE.md and its card pages (docs/hooks.md, commands.md, skills.md, scripts.md, config.md) in step when a script, hook or flag changes.
     - Keep each task independently reviewable.
 
 operations:
