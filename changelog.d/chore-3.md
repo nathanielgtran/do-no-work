@@ -1,0 +1,1 @@
+OpenSpec baseline: `openspec/config.yaml`, six capability specs describing current behaviour (installer, install-sync, agent-guardrails, changelog-fragments, public-safety, pr-tooling), repo `CLAUDE.md`
