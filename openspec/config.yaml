@@ -1,0 +1,76 @@
+schema: spec-driven
+
+context: |
+  Repo: do-no-work (PUBLIC). A Claude Code setup plus dotfiles: guard hooks, slash commands,
+  skills, a reviewer agent, CLI scripts, and shell/git config, installed from this checkout by
+  install.sh (macOS, Linux, WSL) or install.ps1 (Windows). The owner's own private files live in
+  an overlay outside the repo and never enter it.
+
+  PUBLIC means: never write personal details (names, emails, hostnames, IPs, private repo names,
+  home paths) into any tracked file, spec and changelog fragment included. The check is
+  scripts/public-safety-check.sh; it runs as a pre-commit hook and a CI step. A line that must
+  carry a flagged value ends with the marker "public-safety: allow" plus a reason.
+
+  Layout:
+    install.sh, install.ps1        installers; install.ps1 runs install.sh --copy through Git Bash
+    bin/                           CLI scripts, installed to ~/.local/bin (dnw-apply, dnw-doctor,
+                                   ci-wait, fleet, safe-worktree-remove, repo-bootstrap, ...)
+    claude/hooks/*.sh              Claude Code hooks, installed to ~/.claude/hooks
+    claude/commands, agents        installed to ~/.claude/commands and ~/.claude/agents
+    claude/skills/<name>/          installed whole (or per file when the overlay touches the skill)
+    claude/settings.example.json   hook wiring and deny rules; the installer never edits the user's settings
+    claude/CLAUDE.md.example       template copied to ~/CLAUDE.md only when that file is absent
+    home/                          git, shell and prompt config
+    scripts/                       changelog.sh, public-safety-check.sh, install-manifest.sh,
+                                   overlay-lib.sh, claude-review-verdict.sh
+    .github/workflows/             ci.yml, claude-review.yml (reusable), review.yml (self-review)
+    changelog.d/                   one fragment per PR
+    tests/                         plain-bash *_test.sh files; tests/run-all.sh discovers them
+
+  Stack (do NOT introduce alternatives without asking):
+    Scripts:  bash with `#!/bin/bash`, jq, gh, git. Must run on bash 3.2 and BSD userland (macOS)
+              as well as GNU (tests/portability_test.sh scans for the known breakers).
+    Windows:  Windows PowerShell (install.ps1) delegating to Git Bash; files are copied, not linked.
+    CI:       GitHub-hosted runners only, because the repo is public: ubuntu-latest and macos-latest
+              run the tests, windows-latest runs install.ps1 -NoDeps into a throwaway home, plus gitleaks.
+    Tests:    no framework. Each tests/*_test.sh builds a throwaway HOME or repo, stubs gh/curl with
+              a fake binary on PATH, prints "ok" / "FAIL" lines and exits non-zero on any FAIL.
+
+  Test commands:
+    - ./tests/run-all.sh                 everything CI runs (also --list, --only <glob>)
+    - bash tests/<name>_test.sh          one suite
+    - ./scripts/public-safety-check.sh   personal-data scan
+    - ./scripts/changelog.sh check       fragment validation
+
+  Conventions:
+    - Commits: [NO-TICKET] type: description. Branch + PR always; never push main.
+    - Changelog: PRs never edit CHANGELOG.md. Each PR adds changelog.d/<type-N>.md (one line, no ID);
+      get the next ID with scripts/changelog.sh next <feat|fix|docs|chore>.
+    - Early returns; never swallow errors.
+    - Never commit credentials. Never edit Claude settings files from a script here: the installer and
+      dnw-doctor only report settings gaps.
+
+  Blast radius: the guard hooks (autonomy-gate, autonomy-toggle, gate-self-merge, openspec-autonomy)
+  and the deny rules in claude/settings.example.json decide what an unattended agent may do. After a
+  merge, dnw-apply installs them and alerts the owner when any of them changed. Treat their decisions
+  and exit behaviour as a contract.
+
+rules:
+  proposal:
+    - Always include a "Non-goals" section.
+    - State whether the change touches a guard hook or the deny rules, and what an agent could do afterwards that it could not before.
+    - State whether an already-installed machine needs anything beyond dnw-apply.
+  tasks:
+    - Every behaviour change adds or extends a case in the matching tests/*_test.sh, written before the change.
+    - Keep scripts portable to bash 3.2 and BSD tools.
+    - Add the changelog fragment (scripts/changelog.sh next <type>) and keep README.md and docs/REFERENCE.md in step when a script, hook or flag changes.
+    - Keep each task independently reviewable.
+
+operations:
+  apply:
+    guidance:
+      - Run ./tests/run-all.sh, ./scripts/public-safety-check.sh and ./scripts/changelog.sh check before committing.
+      - Run openspec validate --strict --all when anything under openspec/ changed.
+  archive:
+    guidance:
+      - Confirm tasks are complete and tests pass before archiving.
