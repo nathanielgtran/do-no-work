@@ -315,7 +315,7 @@ Repo-defined checks (`.claude/stop-gate`, auto-detect) run only when `origin` is
 
 Tells the session how its new PR gets reviewed and merged.
 
-| When it runs | PostToolUse on Bash, filtered by the settings `if` to `gh pr create` |
+| When it runs | PostToolUse on Bash, filtered by the settings `if` to `gh pr create`; speaks only when the command runs `gh pr create` and stdout has a bare PR URL line |
 |---|---|
 | **Disable** | Remove its PostToolUse entry |
 | **Source** | [`post-pr-create.sh`](../claude/hooks/post-pr-create.sh) |
@@ -331,6 +331,8 @@ Tells the session how its new PR gets reviewed and merged.
 - Never add `REVIEWED` itself. A review block is a red check to fix.
 
 **Otherwise:** spawn one `reviewer` agent with the diff, report findings, and leave `REVIEWED` and the merge to you.
+
+- Silent for every other Bash call, even when the `if` filter lets one through (loops, `ssh '...'`, heredocs that mention `gh pr create`) or a create fails.
 
 - Always exits 0.
 - The PR number comes from the `/pull/<N>` URL in the command output when present.

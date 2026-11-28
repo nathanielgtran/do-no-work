@@ -180,6 +180,19 @@ ctx_has "no ci: spawn reviewer" "$out" 'reviewer'
 ctx_has "no ci: leaves merge to user" "$out" 'to the user'
 ctx_lacks "no ci: no merge command" "$out" 'gh pr merge'
 ctx_lacks "no ci: no gh pr edit instruction" "$out" 'gh pr edit'
+prc_raw() {
+  jq -n --arg d "$tmp/ci" --arg c "$1" --arg o "$2" '{cwd:$d,tool_input:{command:$c},tool_response:{stdout:$o}}' |
+    bash "$HOOKS/post-pr-create.sh" 2>/dev/null
+}
+silent() { local got; got="$(prc_raw "$2" "$3")"; if [ -z "$got" ]; then echo "ok   post-pr-create silent: $1"; else echo "FAIL post-pr-create silent: $1"; fail=1; fi; }
+silent "for loop curl" 'for h in a b; do curl -s https://$h; done' '200'
+silent "ssh" "ssh host 'docker ps'" 'caddy Up'
+silent "gh pr view prints url" 'gh pr view 42 --json url -q .url' 'https://github.com/o/r/pull/42'
+silent "heredoc mentions create" "$(printf 'cat > spec.md <<EOF\n- WHEN gh pr create --fill prints https://github.com/o/r/pull/42\nEOF\nopenspec validate x --strict')" "Change 'x' is valid"
+silent "failed create" 'gh pr create --fill' 'pull request create failed: GraphQL: No commits'
+silent "url mid-line only" 'gh pr create --fill' 'see https://github.com/o/r/pull/42 for details'
+out="$(prc_raw 'git push -u origin x && gh pr create --fill' "$(printf 'Creating pull request\nhttps://github.com/o/r/pull/7')" | jq -r '.hookSpecificOutput.additionalContext // empty')"
+ctx_has "compound create uses PR number" "$out" 'gh pr checks 7 --watch'
 rc=0; jq -n --arg d "$tmp/plain-none" '{cwd:$d}' | bash "$HOOKS/post-pr-create.sh" >/dev/null 2>&1 || rc=$?
 if [ "$rc" = 0 ]; then echo "ok   post-pr-create exits 0 outside a repo"; else echo "FAIL post-pr-create rc=$rc"; fail=1; fi
 
