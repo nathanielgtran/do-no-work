@@ -102,6 +102,19 @@ expect autonomy-gate.sh none  $'cat > a <<A > b <<B\ngit push origin main\nA\ngi
 expect autonomy-gate.sh deny  $'env bash <<EOF\ngit push origin main\nEOF'
 expect autonomy-gate.sh deny  $'xargs sh <<EOF\ngit push origin main\nEOF'
 expect autonomy-gate.sh deny  'git commit --no-ver""ify -m x'
+expect autonomy-gate.sh deny  $'# note <<EOF\ngit push origin main\nEOF'
+expect autonomy-gate.sh deny  $'true # <<EOF\ngit push origin main\nEOF'
+expect autonomy-gate.sh deny  $'cat <<EOF |\nsh\ngit push origin main\nEOF'
+expect autonomy-gate.sh deny  $'cat <<EOF \\\n| sh\ngit push origin main\nEOF'
+expect gate-self-merge.sh ask  $'# <<EOF\ngh pr merge 5\nEOF'
+expect autonomy-gate.sh none  $'cat > x <<EOF # a comment\ndocs: git push origin main\nEOF'
+
+nopy="$tmp/nopy"; mkdir -p "$nopy"
+for b in jq cat dirname tr grep bash; do ln -sf "$(command -v "$b")" "$nopy/$b"; done
+got=$(jq -nc '{tool_input:{command:"gh pr merge 5"},cwd:"/tmp"}' | PATH="$nopy" bash "$HOOKS/gate-self-merge.sh" | jq -r '.hookSpecificOutput.permissionDecision // "none"')
+if [ "$got" = ask ]; then echo "ok   gate-self-merge.sh [no python3] -> ask"; else echo "FAIL gate-self-merge.sh [no python3] -> $got (want ask)"; fail=1; fi
+got=$(jq -nc '{tool_input:{command:"git status"},cwd:"/tmp"}' | PATH="$nopy" bash "$HOOKS/autonomy-gate.sh" | jq -r '.hookSpecificOutput.permissionDecision // "none"')
+if [ "$got" = ask ]; then echo "ok   autonomy-gate.sh [no python3] -> ask"; else echo "FAIL autonomy-gate.sh [no python3] -> $got (want ask)"; fail=1; fi
 expect gate-self-merge.sh none $'cd /x && cat > d.md <<EOF\nrun gh pr merge 5 when green\nEOF'
 expect gate-self-merge.sh ask  $'cat > d.md <<EOF\nx\nEOF\ncd /x && gh pr merge 5'
 

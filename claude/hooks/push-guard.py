@@ -326,6 +326,10 @@ SHELL_FED = SHELLS | {"ssh", "eval", "source", "."}
 
 
 def heredoc_runs_as_shell(line):
+    """True when the body may run as shell: a shell is named on the line, or the line
+    continues onto the next one (trailing pipe, && or backslash), where it may be named."""
+    if re.search(r"(\||&&|\\)\s*$", line):
+        return True
     return any(os.path.basename(w) in SHELL_FED for w in re.split(r"[\s;&|()`]+", line))
 
 
@@ -343,6 +347,8 @@ def heredoc_ops(line):
             i += 1
         elif c in "'\"":
             q = c
+        elif c == "#" and (i == 0 or line[i - 1] in " \t;&|("):
+            break
         elif line.startswith("((", i):
             arith += 1; i += 1
         elif line.startswith("))", i) and arith:
