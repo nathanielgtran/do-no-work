@@ -46,8 +46,14 @@ Every Bash call the agent makes passes through the hooks before it runs. The str
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/guardrails-dark.svg">
-  <img src="docs/diagrams/guardrails.svg" alt="Guardrails: a Bash command passes autonomy-gate, gate-self-merge and openspec-autonomy; deny rules always win; outcomes are deny, ask, allow or the normal prompt">
+  <img src="docs/diagrams/guardrails.svg" alt="Guardrails: a Bash command passes autonomy-gate with push-guard, gate-self-merge and openspec-autonomy; data heredocs are skipped; deny rules always win; outcomes are deny, ask, allow or the normal prompt">
 </picture>
+
+The guards are strict on real risk and quiet otherwise. A prompt on a harmless command is treated as a guard bug and fixed, not approved.
+
+- **Always denied**, at every dial level and through wrappers (`bash -c`, `eval`, `$(...)`, aliases, `git -C`/`-c`, quote splitting, line continuations): push or merge to `main`/`master` (refspecs, `gh api`, `git update-ref`), git hook bypasses (`--no-verify` and its abbreviations, `commit -n`, `core.hooksPath` by any spelling, `SKIP=`/`HUSKY=` before a git command), and writes to the autonomy dial. `push-guard.py` is the shared parser behind these checks.
+- **Asks**: writes to the hook files (so the agent can change a hook when you approve), merges without `REVIEWED` and green CI, anything the parser cannot read, and a missing `jq` or `python3`.
+- **Ignored**: heredoc bodies that are data (`cat > f <<EOF`, commit messages, `python3 - <<EOF`), so docs and scripts that mention these flags don't prompt. A body fed to a shell (`bash <<EOF`, `cat <<EOF | sh`), the `$(...)` inside an unquoted body, and every command after the terminator are still checked.
 
 The tamper guard inspects write targets (redirects, cp/mv/tee/sed -i operands and similar), so reading or merely mentioning those paths passes; a literal `$HOME/.claude/...` target is still denied.
 
@@ -57,8 +63,10 @@ Say **"go less"** in a prompt to block all push and merge, and **"go full"** to 
 
 Two more hooks sit outside that Bash flow:
 
-- **stop-gate** (Stop): when files changed, runs the repo's fast check (`$CLAUDE_STOP_GATE_CMD`, then `.claude/stop-gate`, then go/npm/pytest/openspec auto-detect) and blocks the stop with the failure output. It lets the stop through when the same failure repeats under `stop_hook_active`. Repo-defined checks only run in repos owned by someone in `CLAUDE_STOP_GATE_OWNERS` (space-separated GitHub users/orgs), so a cloned repo can't use it to run code.
+- **stop-gate** (Stop): when files changed, runs the repo's fast check (`$CLAUDE_STOP_GATE_CMD`, then `.claude/stop-gate`, then go/npm/pytest/openspec auto-detect) and blocks the stop with the failure output. It lets the stop through when the same failure repeats under `stop_hook_active`, and skips the check when the tree matches the last passing run, so question-only turns cost nothing. Repo-defined checks only run in repos owned by someone in `CLAUDE_STOP_GATE_OWNERS` (space-separated GitHub users/orgs), so a cloned repo can't use it to run code.
 - **protect-lint-config** (PreToolUse on Edit/Write/MultiEdit): asks before changes to lint, format and type-check config and baseline files, because agents disable rules to pass. Fix the code, or confirm.
+- **go-check** (PostToolUse on Edit/Write/MultiEdit, async): runs gofmt, `go vet` and golangci-lint on the edited package in the background and wakes the agent only on a failure. Tests stay with stop-gate.
+- **post-pr-create** (PostToolUse on `gh pr create`): tells the agent how the PR gets reviewed. With the `claude-review` workflow, CI applies `REVIEWED` and the agent waits for green and merges; it never labels its own PR. Without it, the agent spawns a reviewer and leaves the merge to you.
 
 Sandbox, `autoMode.environment` and worktree examples are in [`claude/settings.example.json`](claude/settings.example.json) and [`.worktreeinclude.example`](.worktreeinclude.example). Copy the latter to `.worktreeinclude` to have gitignored files like `.env` copied into new worktrees; for large directories such as `node_modules` set `worktree.symlinkDirectories` in settings instead.
 
@@ -68,7 +76,7 @@ Use [`claude/skills/autobuild`](claude/skills/autobuild/SKILL.md) when you'd rat
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/autobuild-dark.svg">
-  <img src="docs/diagrams/autobuild.svg" alt="autobuild: preconditions, scout, pick up to three features, set up worktrees, build in parallel, review, wait for CI, label and merge, verify live, log">
+  <img src="docs/diagrams/autobuild.svg" alt="autobuild: preconditions, scout, pick up to three features, set up worktrees, build in parallel, outside reviewer, wait for CI review label, merge, verify live, log">
 </picture>
 
 ## Install

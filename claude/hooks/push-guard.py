@@ -149,10 +149,44 @@ def resolve_cwd(base, d):
     return d if os.path.isabs(d) else os.path.join(base, d)
 
 
+COMMIT_VAL_OPTS = {"-m", "-F", "-C", "-c", "-t", "--message", "--file", "--reuse-message", "--reedit-message", "--template"}
+
+
+def hook_env(env, ctx):
+    if "SKIP" in env or "HUSKY" in env:
+        ctx.add("HOOK", "SKIP=/HUSKY= env prefix skips git hooks")
+    if any("hookspath" in v.lower() for k, v in env.items() if k == "GIT_CONFIG_PARAMETERS" or k.startswith("GIT_CONFIG_KEY_")):
+        ctx.add("HOOK", "core.hooksPath set through GIT_CONFIG_* env")
+
+
+def hook_args(sub, rest, ctx):
+    skip = False
+    for a in rest:
+        if skip:
+            skip = False; continue
+        if a == "--":
+            return
+        if a.startswith("--no-v") and "--no-verify".startswith(a.split("=")[0]):
+            ctx.add("HOOK", f"git {sub} {a} skips git hooks"); return
+        if sub == "config" and a.lower().startswith("core.hookspath") and not {"--get", "--list", "-l"} & set(rest):
+            ctx.add("HOOK", "git config core.hooksPath redirects git hooks"); return
+        if sub != "commit":
+            continue
+        if a in COMMIT_VAL_OPTS:
+            skip = True
+        elif re.match(r"^-[A-Za-z]+$", a) and "n" in re.split(r"[umFCcSt]", a[1:], maxsplit=1)[0]:
+            ctx.add("HOOK", f"git commit {a} (-n) skips git hooks"); return
+
+
 def do_git(args, env, ctx, depth):
     cwd, gitdir, aliases, i = ctx.cwd, env.get("GIT_DIR"), {}, 0
+    hook_env(env, ctx)
     while i < len(args) and args[i].startswith("-"):
         t = args[i]
+        if t.startswith("-c") and len(t) > 2:
+            args = args[:i] + ["-c", t[2:]] + args[i + 1:]; t = "-c"
+        if t.startswith("--config-env="):
+            args = args[:i] + ["--config-env", t.split("=", 1)[1]] + args[i + 1:]; t = "--config-env"
         if t in ("-c", "-C", "--git-dir", "--work-tree", "--namespace", "--super-prefix", "--config-env"):
             if i + 1 >= len(args):
                 raise ValueError(f"git {t} missing value")
@@ -161,6 +195,8 @@ def do_git(args, env, ctx, depth):
                 cwd = resolve_cwd(cwd, v)
             elif t == "--git-dir":
                 gitdir = v
+            elif t in ("-c", "--config-env") and v.lower().startswith("core.hookspath"):
+                ctx.add("HOOK", f"git {t} core.hooksPath redirects git hooks")
             elif t == "-c" and v.lower().startswith("alias."):
                 k, _, val = v[6:].partition("="); aliases[k] = val
             i += 2
@@ -179,6 +215,12 @@ def do_git(args, env, ctx, depth):
                 return
             parts = shlex.split(val)
             sub, rest = (parts[0], parts[1:] + rest) if parts else (sub, rest)
+    hook_args(sub, rest, ctx)
+    if sub == "update-ref":
+        refs = [a for a in rest if not a.startswith("-")]
+        if refs and norm(refs[0]) in PROT:
+            ctx.add("MAIN", f"git update-ref {refs[0]} rewrites main/master")
+        return
     if sub != "push":
         return
     if ctx.less:
@@ -321,17 +363,96 @@ def do_gh(args, env, ctx, depth):
         ctx.add("MAIN", "gh api git/refs write targets main/master")
 
 
+HEREDOC = re.compile(r"(?<!<)<<(-?)[ \t]*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\2")
+SHELL_FED = SHELLS | {"ssh", "eval", "source", "."}
+
+
+def heredoc_runs_as_shell(line):
+    """True when the body may run as shell: a shell is named on the line, or the line
+    continues onto the next one (trailing pipe, && or backslash), where it may be named."""
+    if re.search(r"(\||&&|\\)\s*$", line):
+        return True
+    bare = re.sub(r"'[^']*'|\"(?:\\.|[^\"\\])*\"", " ", line)
+    return any(os.path.basename(w) in SHELL_FED for w in re.split(r"[\s;&|()`]+", bare))
+
+
+def heredoc_ops(line):
+    """Heredoc operators outside quotes and $((...)) arithmetic, in order."""
+    ops, q, arith, i = [], "", 0, 0
+    while i < len(line):
+        c = line[i]
+        if q:
+            if c == "\\" and q == '"':
+                i += 1
+            elif c == q:
+                q = ""
+        elif c == "\\":
+            i += 1
+        elif c in "'\"":
+            q = c
+        elif c == "#" and (i == 0 or line[i - 1] in " \t;&|("):
+            break
+        elif line.startswith("((", i):
+            arith += 1; i += 1
+        elif line.startswith("))", i) and arith:
+            arith -= 1; i += 1
+        elif c == "<" and not arith:
+            m = HEREDOC.match(line, i)
+            if m and not line.startswith("<<<", i):
+                ops.append(m)
+                i = m.end(); continue
+        i += 1
+    return ops
+
+
+def expansions(body):
+    """Commands an unquoted heredoc body runs via $(...) or backticks. All of the body
+    when nesting defeats the simple extraction, so nothing is hidden."""
+    text = "\n".join(body)
+    subs = re.findall(r"\$\(([^()]*)\)", text) + re.findall(r"`([^`]*)`", text)
+    if text.count("$(") != len(re.findall(r"\$\([^()]*\)", text)):
+        return body
+    return [s for s in subs if s.strip()]
+
+
+def strip_heredocs(cmd):
+    """Drop heredoc bodies that are data (cat, tee, python...); keep bodies fed to a shell.
+    An unquoted body keeps its command substitutions, which bash runs. A body whose
+    terminator never appears is kept, so a fake marker cannot hide commands."""
+    out, pending, body = [], [], []
+    for line in cmd.split("\n"):
+        if pending:
+            delim, dash, keep, quoted = pending[0]
+            if (line.lstrip("\t") if dash else line) == delim:
+                pending.pop(0)
+                out.extend(body if keep else [] if quoted else expansions(body))
+                body = []
+            else:
+                body.append(line)
+            continue
+        out.append(line)
+        for m in heredoc_ops(line):
+            pending.append((m.group(3), m.group(1) == "-", heredoc_runs_as_shell(line), bool(m.group(2))))
+    out.extend(body)
+    return "\n".join(out)
+
+
 def main():
     less = "--less" in sys.argv
     try:
         d = json.load(sys.stdin)
-        cmd = (d.get("tool_input") or {}).get("command") or ""
+        cmd = strip_heredocs((d.get("tool_input") or {}).get("command") or "").replace("\\\n", "")
+        if "--strip" in sys.argv:
+            print(cmd)
+            return
         ctx = Ctx(d.get("cwd") or os.getcwd(), less)
         scan(cmd, ctx, 0)
     except Exception as e:  # fail closed: reported as ASK, never silently passed
+        if "--strip" in sys.argv:
+            sys.exit(f"push-guard --strip failed: {type(e).__name__}: {e}")
         print(f"ASK\tpush-guard could not parse command: {type(e).__name__}: {e}".replace('"', "'"))
         return
-    for kind in ("MAIN", "PUSH", "MERGE", "ASK"):
+    for kind in ("MAIN", "HOOK", "PUSH", "MERGE", "ASK"):
         for k, why in ctx.found:
             if k == kind:
                 print(f"{k}\t{why}"); return

@@ -60,7 +60,9 @@ if printf '%s' "$cmd" | grep -Eq "$hard"; then
 fi
 
 # Allowlist: no pipes, substitution or redirects, and every segment starts with a known verb.
-case "$cmd" in *'|'*|*'`'*|*'$('*|*'>'*|*'<'*) exit 0 ;; esac
+case "$cmd" in *'|'*|*'`'*|*'$('*|*'>'*|*'<'*|*$'\n'*) exit 0 ;; esac
+case "${cmd//&&/}" in *'&'*) exit 0 ;; esac
+printf '%s' "$cmd" | grep -Eq -- '--(upload-pack|receive-pack|exec|output)([=[:space:]]|$)' && exit 0
 allow='^(cd [^[:space:]]+|git (add|commit|rebase|fetch|pull|switch|checkout|branch|worktree|status|log|diff|show|stash|push)|gh pr (create|view|edit|checks|list|comment|diff)|openspec|npm (test|ci|run (test|lint|build|typecheck))|pytest|uv run (pytest|ruff)|go (test|vet|build)|make (test|lint))([[:space:]]|$)'
 while IFS= read -r seg; do
   seg="${seg#"${seg%%[![:space:]]*}"}"

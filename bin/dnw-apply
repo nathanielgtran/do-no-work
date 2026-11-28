@@ -19,6 +19,7 @@ GUARD_FILES="claude/hooks/autonomy-gate.sh
 claude/hooks/autonomy-toggle.sh
 claude/hooks/gate-self-merge.sh
 claude/hooks/openspec-autonomy.sh
+claude/hooks/push-guard.py
 claude/settings.example.json"
 DRY=0
 REPO=""
