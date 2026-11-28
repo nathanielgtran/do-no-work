@@ -3,9 +3,10 @@
 # so bypass forms (git -C, cd && push, VAR=1 git push, command git push) are all seen.
 set -uo pipefail
 
-cmd=$(jq -r '.tool_input.command // ""' 2>/dev/null); jq_rc=$?
+input=$(cat)
+cmd=$(printf '%s' "$input" | jq -r '.tool_input.command // ""' 2>/dev/null); jq_rc=$?
 
-emit() { printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"%s","permissionDecisionReason":"%s"}}\n' "$1" "$2"; exit 0; }
+emit() { jq -nc --arg d "$1" --arg r "$2" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:$d,permissionDecisionReason:$r}}'; exit 0; }
 deny() { emit deny "$1"; }
 ask()  { emit ask  "$1"; }
 
@@ -208,7 +209,10 @@ tamper_scan() {
 }
 
 if tamper_scan "$cmd"; then
-  deny "autonomy-gate: refusing to WRITE the autonomy dial or its hooks from Bash. Use a ! command or lift the guard manually."
+  case $cmd in
+    *autonomy-level*|*'$HOME'*|*'${HOME}'*) deny "autonomy-gate: refusing to WRITE the autonomy dial from Bash. The user flips it with 'go less' / 'go full'." ;;
+    *) ask "autonomy-gate: this writes a guard hook. Approve only if you asked for this hook change." ;;
+  esac
 fi
 
 # Read level. File absent -> default full (documented). Unreadable -> fail-closed (ask).
@@ -218,15 +222,47 @@ if [ -e "$f" ]; then
 else
   level=full
 fi
-[ "$level" = "less" ] || exit 0
 
-# less mode: deny push + merge.
-# git [ -C dir | -opts ]* push   (covers plain, -C, env-prefixed, cd && git push)
-if printf '%s' "$cmd" | grep -Eq '\bgit\b([[:space:]]+-[^[:space:]]+|[[:space:]]+-C[[:space:]]+[^[:space:]]+)*[[:space:]]+push\b'; then
-  deny "autonomy=less: PUSH blocked. The user pushes manually in less mode. Say 'go full' to restore."
-fi
-# gh ... pr ... merge   AND   gh ... api ... merge (REST merge bypass)
-if printf '%s' "$cmd" | grep -Eq '\bgh\b[^&;|]*\bpr\b[^&;|]*\bmerge\b|\bgh\b[^&;|]*\bapi\b[^&;|]*merge'; then
-  deny "autonomy=less: MERGE blocked (incl. gh api). Route this PR to a human. Say 'go full' to restore."
-fi
-exit 0
+# Git hook bypass (ALL levels): gitleaks, commit-msg and pre-push hooks must run.
+# Token-based so a quoted commit message that mentions --no-verify is not a match.
+hook_bypass() {
+  local t git=0 sub="" skip=0
+  tokenize "$1" || return 2
+  for t in "${TOK[@]}"; do
+    if [ "$t" = "$SEP" ]; then git=0; sub=""; skip=0; continue; fi
+    if [ "$skip" = 1 ]; then
+      skip=0
+      case $t in core.hooksPath=*|core.hookspath=*) return 0;; esac
+      continue
+    fi
+    if [ "$git" = 0 ]; then
+      case $t in SKIP=*|HUSKY=*) return 0;; esac
+      [ "${t##*/}" = git ] && git=1
+      continue
+    fi
+    if [ -z "$sub" ]; then
+      case $t in -C|-c|--git-dir|--work-tree) skip=1;; -*) ;; *) sub=$t;; esac
+      continue
+    fi
+    case "$sub:$t" in
+      *:--no-verify|commit:-n*|commit:-[!-]*n*|config:core.hooksPath|config:core.hookspath) return 0;;
+    esac
+  done
+  return 1
+}
+hook_bypass "$cmd"; hb=$?
+[ "$hb" = 0 ] && deny "autonomy-gate: git hook bypass blocked (--no-verify, commit -n, core.hooksPath, SKIP=, HUSKY=). Fix what the hook flags instead."
+[ "$hb" = 2 ] && ask "autonomy-gate: could not tokenize command — prompting."
+
+# Push/merge to main (ALL levels) and any push/merge (less) via the shared normaliser.
+gflag=(); [ "$level" = "less" ] && gflag=(--less)
+verdict=$(printf '%s' "$input" | python3 "$(dirname "$0")/push-guard.py" ${gflag[@]+"${gflag[@]}"}) \
+  || ask "autonomy-gate: push-guard failed to run — prompting."
+kind=${verdict%%$'\t'*}; why=${verdict#*$'\t'}
+case $kind in
+  OK) exit 0 ;;
+  MAIN) deny "autonomy-gate: $why. Never push or merge to main/master; open a PR." ;;
+  PUSH) deny "autonomy=less: PUSH blocked ($why). The user pushes manually in less mode. Say 'go full' to restore." ;;
+  MERGE) deny "autonomy=less: MERGE blocked ($why). Route this PR to a human. Say 'go full' to restore." ;;
+  *) ask "autonomy-gate: $why" ;;
+esac
